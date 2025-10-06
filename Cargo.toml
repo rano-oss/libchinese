@@ -1,0 +1,7 @@
+[workspace]
+members = [
+    "core",
+    "libpinyin",
+    "libzhuyin"
+]
+resolver = "2"
