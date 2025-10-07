@@ -447,12 +447,177 @@ impl Parser {
         out
     }
 
-    /// Return top-K segmentation alternatives (placeholder).
+    /// Return top-K segmentation alternatives (beam search).
     ///
-    /// Full implementation should enumerate alternative segmentations and rank
-    /// them by score. For now we return a single best segmentation wrapped in a Vec.
-    pub fn segment_top_k(&self, input: &str, _k: usize, allow_fuzzy: bool) -> Vec<Vec<Syllable>> {
-        vec![self.segment_best(input, allow_fuzzy)]
+    /// This implements a left-to-right beam search that expands exact trie
+    /// prefixes and simple fuzzy alternatives (up to a small substring length).
+    /// States are ranked by a tuple similar to the DP tie-breakers used in
+    /// `segment_best`: (cost ascending, parsed descending, keys ascending, distance ascending).
+    ///
+    /// The implementation is intentionally conservative and correctness-first:
+    /// it favors clarity and parity with `segment_best`'s cost model while
+    /// producing up to `k` distinct segmentation hypotheses.
+    pub fn segment_top_k(&self, input: &str, k: usize, allow_fuzzy: bool) -> Vec<Vec<Syllable>> {
+        // Normalize input: lowercase and remove whitespace (same as segment_best)
+        let normalized: Vec<char> = input
+            .to_ascii_lowercase()
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .collect();
+        let n = normalized.len();
+        if n == 0 {
+            return Vec::new();
+        }
+
+        // Beam state
+        #[derive(Clone)]
+        struct State {
+            pos: usize,
+            tokens: Vec<Syllable>,
+            cost: f32,
+            parsed: usize,
+            keys: usize,
+            dist: i32,
+        }
+
+        // Comparator used for ranking states (lower is better)
+        fn state_cmp(a: &State, b: &State) -> std::cmp::Ordering {
+            // primary: cost (smaller better)
+            if (a.cost - b.cost).abs() > 1e-6 {
+                return a
+                    .cost
+                    .partial_cmp(&b.cost)
+                    .unwrap_or(std::cmp::Ordering::Equal);
+            }
+            // tie: prefer larger parsed
+            if a.parsed != b.parsed {
+                return b.parsed.cmp(&a.parsed);
+            }
+            // tie: prefer fewer keys
+            if a.keys != b.keys {
+                return a.keys.cmp(&b.keys);
+            }
+            // tie: prefer smaller distance
+            a.dist.cmp(&b.dist)
+        }
+
+        // initial state
+        let start = State {
+            pos: 0,
+            tokens: Vec::new(),
+            cost: 0.0,
+            parsed: 0,
+            keys: 0,
+            dist: 0,
+        };
+
+        let mut beam: Vec<State> = vec![start];
+        let mut completed: Vec<State> = Vec::new();
+
+        // beam width: allow some slack beyond k to keep diverse hypotheses
+        let beam_width = std::cmp::max(8, k.saturating_mul(4));
+
+        while !beam.is_empty() {
+            let mut next_beam: Vec<State> = Vec::new();
+
+            for st in beam.into_iter() {
+                // If this state already finished, keep it in completed set.
+                if st.pos == n {
+                    completed.push(st);
+                    continue;
+                }
+
+                // Expand exact trie prefixes starting at st.pos
+                let prefixes = self.trie.walk_prefixes(&normalized, st.pos);
+                for (end, matched) in prefixes.into_iter() {
+                    // only expand if suffix from `end` is reachable (we don't require that here)
+                    let mut new_tokens = st.tokens.clone();
+                    new_tokens.push(Syllable::new(matched.clone(), false));
+                    let new_state = State {
+                        pos: end,
+                        tokens: new_tokens,
+                        cost: st.cost + 1.0_f32, // exact match cost
+                        parsed: st.parsed + (end - st.pos),
+                        keys: st.keys + 1,
+                        dist: st.dist,
+                    };
+                    next_beam.push(new_state);
+                }
+
+                // Fuzzy alternatives (approximate): try short substrings and map via fuzzy.alternatives
+                if allow_fuzzy {
+                    for len in 1..=4 {
+                        if st.pos + len > n {
+                            break;
+                        }
+                        let substr: String = normalized[st.pos..st.pos + len].iter().collect();
+                        let alts = self.fuzzy.alternatives(&substr);
+                        for alt in alts.into_iter() {
+                            // If the alt is an exact syllable in the trie, use it as a fuzzy match
+                            if self.trie.contains_word(&alt) {
+                                // only accept substitutions that match the same length in chars
+                                if alt.chars().count() == substr.chars().count() {
+                                    let end = st.pos + len;
+                                    let mut new_tokens = st.tokens.clone();
+                                    new_tokens.push(Syllable::new(alt.clone(), true));
+                                    let new_state = State {
+                                        pos: end,
+                                        tokens: new_tokens,
+                                        cost: st.cost + 1.5_f32, // fuzzy heavier than exact
+                                        parsed: st.parsed + (end - st.pos),
+                                        keys: st.keys + 1,
+                                        dist: st.dist + 1,
+                                    };
+                                    next_beam.push(new_state);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Unknown fallback: consume one character with heavy penalty
+                let end = st.pos + 1;
+                if end <= n {
+                    let substr: String = normalized[st.pos..end].iter().collect();
+                    let mut new_tokens = st.tokens.clone();
+                    new_tokens.push(Syllable::new(substr.clone(), false));
+                    let new_state = State {
+                        pos: end,
+                        tokens: new_tokens,
+                        cost: st.cost + 10.0_f32,
+                        parsed: st.parsed + 1,
+                        keys: st.keys + 1,
+                        dist: st.dist + 1000,
+                    };
+                    next_beam.push(new_state);
+                }
+            }
+
+            if next_beam.is_empty() {
+                break;
+            }
+
+            // prune next_beam to beam_width using our comparator
+            next_beam.sort_by(|a, b| state_cmp(a, b));
+            if next_beam.len() > beam_width {
+                next_beam.truncate(beam_width);
+            }
+
+            beam = next_beam;
+        }
+
+        // If no completed segmentation was found, fall back to best single segmentation
+        if completed.is_empty() {
+            return vec![self.segment_best(input, allow_fuzzy)];
+        }
+
+        // Sort completed states and return top-k token sequences
+        completed.sort_by(|a, b| state_cmp(a, b));
+        let mut out: Vec<Vec<Syllable>> = Vec::new();
+        for st in completed.into_iter().take(k) {
+            out.push(st.tokens);
+        }
+        out
     }
 }
 

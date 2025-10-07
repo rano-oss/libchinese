@@ -76,40 +76,28 @@ impl Engine {
             // Language crates may change this joiner if appropriate.
             let key = Self::segmentation_to_key(&seg);
 
-            // Lookup lexicon candidates for this key
-            let raw_phrases = self.model.lexicon.lookup(&key);
+            // Use unified Model.candidates_for_key to obtain scored candidates for this key.
+            // This centralizes lexicon lookup, n-gram scoring and userdict boosting.
+            let mut candidates = self.model.candidates_for_key(&key, self.limit);
 
-            for phrase in raw_phrases.into_iter() {
-                // Tokenize the phrase for n-gram scoring.
-                // For a first pass we treat each character as a token (language-specific).
-                let tokens: Vec<String> = phrase.chars().map(|c| c.to_string()).collect();
-
-                // Score using the n-gram model and config.
-                // Use the model's ngram scoring helper.
-                let ngram_score = self.model.ngram.score_sequence(&tokens, &self.model.config);
-
-                // Boost by user frequency (the Model.candidates_for_key helper uses this logic;
-                // here we implement a compatible scoring path for direct lookups).
-                let freq = self.model.userdict.frequency(&phrase);
-                let mut score = ngram_score;
-                if freq > 0 {
-                    score += (1.0 + (freq as f32)).ln();
+            // If this segmentation used any fuzzy matches, apply an additional penalty
+            // to the candidates produced for this segmentation. This preserves the
+            // centralized scoring while allowing parser-level fuzzy signals to influence
+            // ranking.
+            let used_fuzzy = seg.iter().any(|s| s.fuzzy);
+            if used_fuzzy {
+                let penalty = self.fuzzy.penalty();
+                for c in candidates.iter_mut() {
+                    c.score -= penalty;
                 }
+            }
 
-                // Apply fuzzy penalty if any of the segmentation syllables were fuzzy
-                // (simple heuristic for now — more precise scoring will be in Phase 5).
-                if seg.iter().any(|s| s.fuzzy) {
-                    // Use the fuzzy map's configured penalty rather than a non-existent
-                    // field on the core Config. This keeps the engine compatible with
-                    // the current `libchinese_core::Config` shape.
-                    score -= self.fuzzy.penalty();
-                }
-
-                // Merge candidate: keep the best score seen for this exact phrase
-                match best.get(&phrase) {
-                    Some(existing) if existing.score >= score => {}
+            // Merge candidate: keep the best score seen for this exact phrase
+            for cand in candidates.into_iter() {
+                match best.get(&cand.text) {
+                    Some(existing) if existing.score >= cand.score => {}
                     _ => {
-                        best.insert(phrase.clone(), Candidate::new(phrase.clone(), score));
+                        best.insert(cand.text.clone(), cand.clone());
                     }
                 }
             }
