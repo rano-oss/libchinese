@@ -74,6 +74,13 @@ pub mod utils {
     }
 }
 
+/// SingleGram container and helpers (in-memory test-oriented implementation).
+/// Implemented in `core::single_gram`. This module mirrors upstream SingleGram
+/// semantics used by the lookup and training code and is exported for use by
+/// language crates and tests.
+pub mod single_gram;
+pub use single_gram::SingleGram;
+
 /// Simple in-memory lexicon.
 ///
 /// Lookups map a pinyin-sequence key (e.g. "nihao") to a list of Chinese
