@@ -81,6 +81,9 @@ pub mod utils {
 pub mod single_gram;
 pub use single_gram::SingleGram;
 
+pub mod interpolation;
+pub use interpolation::{Interpolator, Lambdas};
+
 /// Simple in-memory lexicon.
 ///
 /// Lookups map a pinyin-sequence key (e.g. "nihao") to a list of Chinese
@@ -205,6 +208,69 @@ impl NGramModel {
 
         score
     }
+
+    /// Score sequence but consult an optional Interpolator for per-key lambdas.
+    ///
+    /// `key_for_lookup` is passed to the interpolator to find a per-key lambda
+    /// triple. If no entry is found, falls back to `cfg` weights.
+    pub fn score_sequence_with_interpolator(
+        &self,
+        tokens: &[String],
+        cfg: &Config,
+        key_for_lookup: &str,
+        interpolator: Option<&Interpolator>,
+    ) -> f32 {
+        if tokens.is_empty() {
+            return std::f32::NEG_INFINITY;
+        }
+
+        // floor log-probability
+        let floor = -20.0f32;
+
+        // decide weights
+        let mut weights = [cfg.unigram_weight, cfg.bigram_weight, cfg.trigram_weight];
+        if let Some(interp) = interpolator {
+            if let Some(Lambdas(arr)) = interp.lookup(key_for_lookup) {
+                weights = arr;
+            }
+        }
+
+        // Ensure numerical stability: if weights don't sum to 1, normalize
+        let sum: f32 = weights.iter().copied().sum();
+        if sum > 0.0 {
+            for w in weights.iter_mut() {
+                *w /= sum;
+            }
+        }
+
+        let mut score = 0f32;
+        for i in 0..tokens.len() {
+            let u = self.unigram.get(&tokens[i]).copied().unwrap_or(floor);
+
+            let b = if i >= 1 {
+                let key = (tokens[i - 1].clone(), tokens[i].clone());
+                self.bigram.get(&key).copied().unwrap_or(u)
+            } else {
+                u
+            };
+
+            let t = if i >= 2 {
+                let key = (
+                    tokens[i - 2].clone(),
+                    tokens[i - 1].clone(),
+                    tokens[i].clone(),
+                );
+                self.trigram.get(&key).copied().unwrap_or(b)
+            } else {
+                b
+            };
+
+            let interpolated = weights[0] * u + weights[1] * b + weights[2] * t;
+            score += interpolated;
+        }
+
+        score
+    }
 }
 
 /// User dictionary holding learned phrase frequencies.
@@ -262,16 +328,24 @@ pub struct Model {
     pub ngram: Arc<NGramModel>,
     pub userdict: UserDict,
     pub config: Config,
+    pub interpolator: Option<Arc<Interpolator>>,
 }
 
 impl Model {
     /// Create a new model with defaults.
-    pub fn new(lexicon: Lexicon, ngram: NGramModel, userdict: UserDict, config: Config) -> Self {
+    pub fn new(
+        lexicon: Lexicon,
+        ngram: NGramModel,
+        userdict: UserDict,
+        config: Config,
+        interpolator: Option<Arc<Interpolator>>,
+    ) -> Self {
         Self {
             lexicon: Arc::new(lexicon),
             ngram: Arc::new(ngram),
             userdict,
             config,
+            interpolator,
         }
     }
 
@@ -291,7 +365,12 @@ impl Model {
             .map(|phrase| {
                 // Tokenize: for demo, split by char to create tokens.
                 let tokens: Vec<String> = phrase.chars().map(|c| c.to_string()).collect();
-                let mut score = self.ngram.score_sequence(&tokens, &self.config);
+                let mut score = if let Some(interp) = &self.interpolator {
+                    self.ngram
+                        .score_sequence_with_interpolator(&tokens, &self.config, key, Some(&*interp))
+                } else {
+                    self.ngram.score_sequence(&tokens, &self.config)
+                };
 
                 // Boost with user frequency (log-ish)
                 let freq = self.userdict.frequency(&phrase);
@@ -336,7 +415,7 @@ mod tests {
         user.learn("你好"); // increase frequency of "你好"
 
         let cfg = Config::default();
-        let model = Model::new(lx, ng, user, cfg);
+    let model = Model::new(lx, ng, user, cfg, None);
 
         let cands = model.candidates_for_key("nihao", 10);
         assert!(!cands.is_empty());
@@ -372,5 +451,31 @@ mod tests {
         // With trigram present, score should be higher (less negative) than pure unigram sum.
         let unigram_sum = -1.0 + -1.5 + -2.0;
         assert!(score > unigram_sum);
+    }
+
+    #[test]
+    fn per_key_interpolation_lookup() {
+        use std::fs::File;
+        use std::io::Write;
+        use fst::MapBuilder;
+
+        // Build simple model where bigram is much better for sequence [a,b]
+        let mut ng = NGramModel::new();
+        ng.insert_unigram("a", -2.0);
+        ng.insert_unigram("b", -2.0);
+        ng.insert_bigram("a", "b", -0.1);
+
+        let cfg = Config::default();
+
+    // create an in-memory interpolator that favors bigram for key "k1"
+    let mut hm = std::collections::HashMap::new();
+    hm.insert("k1".to_string(), Lambdas([0.0f32, 1.0f32, 0.0f32]));
+    let interp = Interpolator::from_map(hm);
+        let tokens = vec!["a".to_string(), "b".to_string()];
+        let base_score = ng.score_sequence(&tokens, &cfg);
+        let with_interp = ng.score_sequence_with_interpolator(&tokens, &cfg, "k1", Some(&interp));
+
+        // with interpolation favoring bigram, score should be higher
+        assert!(with_interp > base_score);
     }
 }
