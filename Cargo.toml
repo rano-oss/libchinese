@@ -2,6 +2,7 @@
 members = [
     "core",
     "libpinyin",
-    "libzhuyin"
+    "libzhuyin",
+    "tools/convert_tables"
 ]
 resolver = "2"
