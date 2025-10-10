@@ -260,7 +260,7 @@ mod tests {
         ng.insert_unigram("好", -1.0);
         let user = UserDict::new();
         let cfg = Config::default();
-        let model = Model::new(lex, ng, user, cfg);
+    let model = Model::new(lex, ng, user, cfg, None);
 
         // Create parser seeded with syllables
         let parser = crate::parser::Parser::with_syllables(&["ni", "hao"]);

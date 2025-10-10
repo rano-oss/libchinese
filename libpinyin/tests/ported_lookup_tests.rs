@@ -34,7 +34,7 @@ fn userdict_commit_changes_ranking_end_to_end() {
 
     // Config with default interpolation weights (not critical for this test).
     let cfg = Config::default();
-    let model = Model::new(lex, ng, user, cfg);
+    let model = Model::new(lex, ng, user, cfg, None);
 
     // Create parser seeded with expected syllables.
     let parser = Parser::with_syllables(&["ni", "hao"]);

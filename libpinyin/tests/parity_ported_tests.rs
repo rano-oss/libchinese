@@ -72,7 +72,7 @@ fn parity_engine_lookup_flow() {
     // Construct a default UserDict using the current core API.
     let user = UserDict::new();
     let cfg = Config::default();
-    let model = Model::new(lex, ng, user, cfg);
+    let model = Model::new(lex, ng, user, cfg, None);
 
     let parser = Parser::with_syllables(&["ni", "hao"]);
     let engine = Engine::new(model, parser);

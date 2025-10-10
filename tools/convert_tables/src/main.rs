@@ -4,7 +4,7 @@ use clap::Parser;
 use redb::{Database, TableDefinition};
 use serde::Deserialize;
 use std::fs::File;
-use std::io::{BufReader, Write, BufRead};
+use std::io::{BufReader, Write, BufRead, Read};
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -70,7 +70,7 @@ fn main() -> Result<()> {
         }
         w.commit()?;
 
-    } else if input_ext == "table" {
+    } else if input_ext == "table" || input_ext == "text" {
         // Parse .table files. Common layouts observed in repo:
         // - key-first: key\tphrase\tid\tfreq  (pinyin/zhuyin -> phrase)
         // - id-first: id\t... (numeric first column)
@@ -98,7 +98,21 @@ fn main() -> Result<()> {
         let file = File::open(&args.input)?;
         reader = BufReader::new(file);
 
-        if first_tok.chars().all(|c| c.is_ascii_alphabetic() || c == '\'' || c == '\u02ca' || c == '\u02cb' || c == '-') {
+        if input_ext == "text" {
+            // store raw text file into redb under id 0
+            let mut content = String::new();
+            reader.read_to_string(&mut content)?;
+            let db = Database::create(&args.out_redb)?;
+            let k_table: TableDefinition<u64, Vec<u8>> = TableDefinition::new("rows");
+            let mut w = db.begin_write()?;
+            {
+                let mut table = w.open_table(k_table)?;
+                let ser = bincode::serialize(&content)?;
+                table.insert(&0u64, &ser)?;
+            }
+            w.commit()?;
+
+    } else if first_tok.chars().all(|c| c.is_ascii_alphabetic() || c == '\'' || c == '\u{02ca}' || c == '\u{02cb}' || c == '-') {
             // key-first: build key -> Vec<PhraseEntry>
             let mut map: std::collections::HashMap<String, Vec<PhraseEntry>> = Default::default();
             for line in reader.lines() {
