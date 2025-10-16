@@ -1,7 +1,6 @@
 // libchinese/libpinyin/src/parser.rs
 //
 // Pinyin parser skeleton for libpinyin port.
-// - Basic Trie implementation for syllable set
 // - DP-based segmentation (simple cost model, favors fewer segments / longer matches)
 // - Fuzzy map placeholder (TODO: full fuzzy handling)
 //
@@ -19,6 +18,7 @@
 // This file intentionally contains a compact, easy-to-replace implementation that
 // is valid Rust and suitable for iterative improvement.
 
+use libchinese_core::TrieNode;
 use std::collections::HashMap;
 
 /// A single matched syllable (a chunk of pinyin).
@@ -39,80 +39,6 @@ impl Syllable {
             text: text.into(),
             fuzzy,
         }
-    }
-}
-
-/// A simple Trie (prefix tree) for storing valid pinyin syllables.
-/// Values are stored as `Option<String>` when a node represents the end of a
-/// valid syllable.
-#[derive(Debug, Default)]
-pub struct TrieNode {
-    children: HashMap<char, Box<TrieNode>>,
-    is_end: bool,
-    /// When `is_end` is true, `word` contains the syllable string.
-    word: Option<String>,
-}
-
-impl TrieNode {
-    pub fn new() -> Self {
-        Self {
-            children: HashMap::new(),
-            is_end: false,
-            word: None,
-        }
-    }
-
-    /// Insert a syllable into the trie.
-    pub fn insert(&mut self, syllable: &str) {
-        let mut node = self;
-        for ch in syllable.chars() {
-            node = node
-                .children
-                .entry(ch)
-                .or_insert_with(|| Box::new(TrieNode::new()));
-        }
-        node.is_end = true;
-        node.word = Some(syllable.to_string());
-    }
-
-    /// Check whether the trie contains exactly the given word.
-    pub fn contains_word(&self, word: &str) -> bool {
-        let mut node = self;
-        for ch in word.chars() {
-            if let Some(child) = node.children.get(&ch) {
-                node = child;
-            } else {
-                return false;
-            }
-        }
-        node.is_end
-    }
-
-    /// Walk the trie starting at a position in `input` and return all matched
-    /// prefixes (end index, matched string).
-    ///
-    /// `input` is the full input string; `start` is the byte index (in chars)
-    /// from which to start walking. We operate on chars and return `end`
-    /// as the exclusive char index.
-    pub fn walk_prefixes<'a>(&self, input: &'a [char], start: usize) -> Vec<(usize, String)> {
-        let mut res = Vec::new();
-        let mut node = self;
-        let mut idx = start;
-        while idx < input.len() {
-            let ch = input[idx];
-            if let Some(child) = node.children.get(&ch) {
-                node = child;
-                idx += 1;
-                if node.is_end {
-                    if let Some(w) = &node.word {
-                        res.push((idx, w.clone()));
-                    }
-                }
-            } else {
-                break;
-            }
-        }
-        res
     }
 }
 

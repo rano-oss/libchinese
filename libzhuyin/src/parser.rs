@@ -26,6 +26,7 @@ Notes
   richer (tone-insensitive mapping, alternate finals, etc).
 */
 
+use libchinese_core::TrieNode;
 use std::collections::HashMap;
 
 /// A matched zhuyin syllable with metadata.
@@ -46,74 +47,6 @@ impl ZhuyinSyllable {
     }
 }
 
-/// Simple Trie node for Unicode characters (used for zhuyin syllable storage).
-#[derive(Default, Debug)]
-pub struct TrieNode {
-    children: HashMap<char, Box<TrieNode>>,
-    is_end: bool,
-    /// When `is_end` == true, `word` stores the syllable as a string.
-    word: Option<String>,
-}
-
-impl TrieNode {
-    pub fn new() -> Self {
-        Self {
-            children: HashMap::new(),
-            is_end: false,
-            word: None,
-        }
-    }
-
-    /// Insert a syllable into the trie.
-    pub fn insert(&mut self, syllable: &str) {
-        let mut node = self;
-        for ch in syllable.chars() {
-            node = node
-                .children
-                .entry(ch)
-                .or_insert_with(|| Box::new(TrieNode::new()));
-        }
-        node.is_end = true;
-        node.word = Some(syllable.to_string());
-    }
-
-    /// Check if the trie contains the exact word.
-    pub fn contains_word(&self, word: &str) -> bool {
-        let mut node = self;
-        for ch in word.chars() {
-            if let Some(child) = node.children.get(&ch) {
-                node = child;
-            } else {
-                return false;
-            }
-        }
-        node.is_end
-    }
-
-    /// Walk prefixes starting at `start` (char index) over `input_chars`.
-    /// Returns vector of (end_index_exclusive, matched_string).
-    pub fn walk_prefixes(&self, input_chars: &[char], start: usize) -> Vec<(usize, String)> {
-        let mut res = Vec::new();
-        let mut node = self;
-        let mut idx = start;
-        while idx < input_chars.len() {
-            let ch = input_chars[idx];
-            if let Some(child) = node.children.get(&ch) {
-                node = child;
-                idx += 1;
-                if node.is_end {
-                    if let Some(w) = &node.word {
-                        res.push((idx, w.clone()));
-                    }
-                }
-            } else {
-                break;
-            }
-        }
-        res
-    }
-}
-
 /// Placeholder fuzzy map for zhuyin.
 /// Real rules may include:
 ///  - tone-insensitive matching
@@ -130,18 +63,19 @@ pub struct ZhuyinFuzzy {
 
 impl ZhuyinFuzzy {
     pub fn new() -> Self {
-        // let mut fm = 
-        Self {
+        let mut fm = Self {
             map: HashMap::new(),
             penalty: 1.0,
-        }
+        };
+        
         // Example symmetric mappings (illustrative; adjust as needed)
         // These keys might be bopomofo characters or ascii representations.
-        // fm.add_pair("ㄓ", "ㄗ");
-        // fm.add_pair("ㄔ", "ㄘ");
-        // fm.add_pair("ㄕ", "ㄙ");
-        // fm.add_pair("ㄌ", "ㄋ");
-        // fm
+        fm.add_pair("ㄓ", "ㄗ");
+        fm.add_pair("ㄔ", "ㄘ");
+        fm.add_pair("ㄕ", "ㄙ");
+        fm.add_pair("ㄌ", "ㄋ");
+        
+        fm
     }
 
     fn add_pair(&mut self, a: &str, b: &str) {

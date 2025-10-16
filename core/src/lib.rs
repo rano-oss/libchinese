@@ -26,6 +26,9 @@ use bincode;
 pub mod ngram;
 pub use ngram::NGramModel;
 
+pub mod trie;
+pub use trie::TrieNode;
+
 /// A single text candidate with an associated score.
 ///
 /// Scores are on a relative scale; higher is better. Use `f32` for compactness
@@ -180,13 +183,11 @@ pub struct Lexicon {
     // stored as "ni'hao".
     no_apos_map: Option<AHashMap<String, u64>>,
     // Metadata for the lexicon format
-    #[allow(dead_code)]
     metadata: LexiconMetadata,
 }
 
 // Local type used for deserializing phrase lists stored in the runtime
 // redb `phrases` table.
-#[allow(dead_code)]
 #[derive(Deserialize)]
 struct PhraseEntry {
     text: String,

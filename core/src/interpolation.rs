@@ -16,8 +16,7 @@ pub struct Lambdas(pub [f32; 3]);
 #[derive(Debug, Clone)]
 pub struct Interpolator {
     map: Map<Vec<u8>>,
-    db_path: Option<String>,
-    db: Option<Arc<redb::Database>>,
+    db: Arc<redb::Database>,
 }
 
 impl Interpolator {
@@ -32,31 +31,15 @@ impl Interpolator {
             f.read_to_end(&mut buf)?;
             Map::new(buf)?
         };
-
-        let (db_path_str, db_opened) = if redb_path.exists() {
+        let db = {
             let pstr = redb_path.to_string_lossy().to_string();
             match redb::Database::open(redb_path) {
-                Ok(db) => (Some(pstr), Some(Arc::new(db))),
-                Err(_) => (Some(pstr), None),
+                Ok(db) => Arc::new(db),
+                Err(_) => return Err(anyhow::anyhow!("Interpolator: failed to open redb '{}'", pstr)),
             }
-        } else {
-            (None, None)
         };
 
-        Ok(Self { map, db_path: db_path_str, db: db_opened })
-    }
-
-    /// Load from fst data and an already-opened redb Database (avoid reopening on each lookup)
-    pub fn load_with_db<P: AsRef<Path>>(fst_path: P, db: redb::Database) -> Result<Self> {
-        let fst_path = fst_path.as_ref();
-        let map = {
-            let mut f = File::open(fst_path)?;
-            let mut buf = Vec::new();
-            f.read_to_end(&mut buf)?;
-            Map::new(buf)?
-        };
-
-        Ok(Self { map, db_path: None, db: Some(Arc::new(db)) })
+        Ok(Self { map, db })
     }
 
     /// Lookup lambdas for a key. Returns None if not found.
@@ -64,28 +47,8 @@ impl Interpolator {
         // consult fst + redb
         let idx = self.map.get(key)? as u64;
 
-        // If we have a redb path, open it and read the "lambdas" table at the
-        // numeric index. Any error along the way results in None (lookup
-        // failure) to keep the public API ergonomic.
-        // Use cached opened DB if available
-        // db_ref is an Arc<Database> if we have a cached DB; otherwise try opening temporarily.
-        let db_arc_opt: Option<Arc<redb::Database>> = if let Some(db_arc) = &self.db {
-            Some(db_arc.clone())
-        } else if let Some(path) = &self.db_path {
-            match redb::Database::open(path) {
-                Ok(d) => Some(Arc::new(d)),
-                Err(e) => { eprintln!("Interpolator: failed to open redb '{}': {}", path, e); None }
-            }
-        } else {
-            None
-        };
-
-        let db_arc = match db_arc_opt {
-            Some(a) => a,
-            None => return None,
-        };
-
-        let read_txn = match db_arc.begin_read() {
+        // Open a read transaction on the cached database
+        let read_txn = match self.db.begin_read() {
             Ok(t) => t,
             Err(e) => { eprintln!("Interpolator: begin_read failed: {}", e); return None; }
         };
