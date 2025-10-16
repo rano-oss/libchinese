@@ -30,7 +30,10 @@ fn userdict_commit_changes_ranking_end_to_end() {
     ng.insert_unigram("好", -3.0_f64); // unfavorable
 
     // Empty user dictionary initially.
-    let user = UserDict::new();
+    let temp_path = std::env::temp_dir().join(format!(
+        "test_userdict_lookup_{}.redb", std::process::id()
+    ));
+    let user = UserDict::new(&temp_path).expect("create test userdict");
 
     // Config with default interpolation weights (not critical for this test).
     let cfg = Config::default();
@@ -85,7 +88,10 @@ fn model_candidates_for_key_respects_userdict_boost() {
     ng.insert_unigram("好", -3.0_f64);
 
     // Pre-populate userdict and boost "你好" several times
-    let user = UserDict::new();
+    let temp_path = std::env::temp_dir().join(format!(
+        "test_userdict_ranking_{}.redb", std::process::id()
+    ));
+    let user = UserDict::new(&temp_path).expect("create test userdict");
     // Manually learn the phrase multiple times to simulate prior selections
     // Increase iterations to ensure the userdict boost surpasses the n-gram gap.
     for _ in 0..20 {

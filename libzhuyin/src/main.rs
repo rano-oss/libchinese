@@ -40,7 +40,20 @@ fn build_demo_model() -> Model {
                     NGramModel::new()
                 };
 
-                let user = UserDict::new();
+                let home = std::env::var("HOME")
+                    .or_else(|_| std::env::var("USERPROFILE"))
+                    .unwrap_or_else(|_| ".".to_string());
+                let user_path = std::path::PathBuf::from(home)
+                    .join(".zhuyin")
+                    .join("userdict.redb");
+                let user = UserDict::new(&user_path).unwrap_or_else(|e| {
+                    eprintln!("warning: failed to create userdict at {:?}: {}", user_path, e);
+                    let temp_path = std::env::temp_dir().join(format!(
+                        "libzhuyin_userdict_{}.redb",
+                        std::process::id()
+                    ));
+                    UserDict::new(&temp_path).expect("failed to create temp userdict")
+                });
                 
                 // Load zhuyin interpolator if present
                 let lambdas_fst = data_dir.join("zhuyin.lambdas.fst");
@@ -76,7 +89,11 @@ fn build_demo_model() -> Model {
     ng.insert_unigram("中", -1.1);
     ng.insert_unigram("国", -1.3);
 
-    let user = UserDict::new();
+    let temp_path = std::env::temp_dir().join(format!(
+        "libzhuyin_fallback_userdict_{}.redb",
+        std::process::id()
+    ));
+    let user = UserDict::new(&temp_path).expect("create fallback userdict");
     user.learn("你好");
 
     let cfg = Config::default();

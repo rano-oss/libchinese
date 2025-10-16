@@ -26,8 +26,6 @@ impl Engine {
         }
     }
     
-
-    
     /// Main input API - convert Bopomofo input to Chinese candidates
     pub fn input(&self, input: &str) -> Vec<Candidate> {
         // Get segmentations using the zhuyin parser
@@ -74,11 +72,8 @@ impl Engine {
         if vec.len() > self.limit {
             vec.truncate(self.limit);
         }
-        
         vec
     }
-    
-
     
     /// Convert segmentation to lookup key
     fn segmentation_to_key(seg: &[ZhuyinSyllable]) -> String {
@@ -104,7 +99,11 @@ mod tests {
         ng.insert_unigram("中", -1.1);
         ng.insert_unigram("国", -1.3);
         
-        let user = UserDict::new();
+        let temp_path = std::env::temp_dir().join(format!(
+            "libzhuyin_test_userdict_{}.redb",
+            std::process::id()
+        ));
+        let user = UserDict::new(&temp_path).expect("create test userdict");
         let cfg = Config::default();
         let model = Model::new(lex, ng, user, cfg, None);
         

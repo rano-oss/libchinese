@@ -70,7 +70,10 @@ fn parity_engine_lookup_flow() {
     ng.insert_unigram("好", -1.0_f64);
 
     // Construct a default UserDict using the current core API.
-    let user = UserDict::new();
+    let temp_path = std::env::temp_dir().join(format!(
+        "test_userdict_parity_{}.redb", std::process::id()
+    ));
+    let user = UserDict::new(&temp_path).expect("create test userdict");
     let cfg = Config::default();
     let model = Model::new(lex, ng, user, cfg, None);
 

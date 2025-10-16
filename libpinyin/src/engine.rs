@@ -93,19 +93,26 @@ impl Engine {
             }
         };
 
-        // Userdict: prefer persistent userdict.redb if present
+        // Userdict: use persistent userdict at ~/.pinyin/userdict.redb
         let userdict = {
-            let ud_path = data_dir.join("userdict.redb");
-            if ud_path.exists() {
-                match UserDict::new_redb(&ud_path) {
-                    Ok(u) => u,
-                    Err(e) => {
-                        eprintln!("warning: failed to open userdict.redb: {} — using ephemeral userdict", e);
-                        UserDict::new()
-                    }
+            let home = std::env::var("HOME")
+                .or_else(|_| std::env::var("USERPROFILE"))
+                .unwrap_or_else(|_| ".".to_string());
+            let ud_path = std::path::PathBuf::from(home)
+                .join(".pinyin")
+                .join("userdict.redb");
+            
+            match UserDict::new(&ud_path) {
+                Ok(u) => u,
+                Err(e) => {
+                    eprintln!("warning: failed to open userdict at {:?}: {}", ud_path, e);
+                    // Fallback to temp userdict
+                    let temp_path = std::env::temp_dir().join(format!(
+                        "libpinyin_userdict_{}.redb",
+                        std::process::id()
+                    ));
+                    UserDict::new(&temp_path).expect("failed to create temp userdict")
                 }
-            } else {
-                UserDict::new()
             }
         };
 
@@ -271,7 +278,7 @@ impl Engine {
     /// This writes a simple u64 frequency table matching `core::userdict` layout.
     pub fn persist_userdict<P: AsRef<std::path::Path>>(&self, path: P) -> Result<(), Box<dyn Error>> {
         let map = self.model.userdict.snapshot();
-        let ud = UserDict::new_redb(path).map_err(|e| format!("open userdict redb: {}", e))?;
+        let ud = UserDict::new(path).map_err(|e| format!("open userdict redb: {}", e))?;
         for (k, v) in map.into_iter() {
             // write frequencies directly
             ud.learn_with_count(&k, v).map_err(|e| format!("write userdict: {}", e))?;
@@ -539,9 +546,13 @@ mod tests {
         let mut ng = NGramModel::new();
         ng.insert_unigram("你", -1.0);
         ng.insert_unigram("好", -1.0);
-    let user = UserDict::new();
+        let temp_path = std::env::temp_dir().join(format!(
+            "libpinyin_test_userdict_{}.redb",
+            std::process::id()
+        ));
+        let user = UserDict::new(&temp_path).expect("create test userdict");
         let cfg = Config::default();
-    let model = Model::new(lex, ng, user, cfg, None);
+        let model = Model::new(lex, ng, user, cfg, None);
 
         // Create parser seeded with syllables
         let parser = crate::parser::Parser::with_syllables(&["ni", "hao"]);
