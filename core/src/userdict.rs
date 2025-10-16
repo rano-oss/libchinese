@@ -118,7 +118,6 @@ impl UserDict {
 #[derive(Debug)]
 pub struct RedbUserDict {
     db: Database,
-    #[allow(dead_code)]
     path: PathBuf,
 }
 
