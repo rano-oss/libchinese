@@ -130,19 +130,18 @@ pub struct ZhuyinFuzzy {
 
 impl ZhuyinFuzzy {
     pub fn new() -> Self {
-        let mut fm = Self {
+        // let mut fm = 
+        Self {
             map: HashMap::new(),
             penalty: 1.0,
-        };
-
+        }
         // Example symmetric mappings (illustrative; adjust as needed)
         // These keys might be bopomofo characters or ascii representations.
-        fm.add_pair("ㄓ", "ㄗ");
-        fm.add_pair("ㄔ", "ㄘ");
-        fm.add_pair("ㄕ", "ㄙ");
-        fm.add_pair("ㄌ", "ㄋ");
-
-        fm
+        // fm.add_pair("ㄓ", "ㄗ");
+        // fm.add_pair("ㄔ", "ㄘ");
+        // fm.add_pair("ㄕ", "ㄙ");
+        // fm.add_pair("ㄌ", "ㄋ");
+        // fm
     }
 
     fn add_pair(&mut self, a: &str, b: &str) {
@@ -171,7 +170,26 @@ impl ZhuyinFuzzy {
         out
     }
 
-
+    /// Return whether two tokens are equivalent under the fuzzy map.
+    /// Considers exact equality and configured symmetric alternatives.
+    pub fn is_equivalent(&self, a: &str, b: &str) -> bool {
+        if a == b {
+            return true;
+        }
+        let a_key = a.trim().to_string();
+        let b_key = b.trim().to_string();
+        if let Some(alts) = self.map.get(&a_key) {
+            if alts.contains(&b_key) {
+                return true;
+            }
+        }
+        if let Some(alts) = self.map.get(&b_key) {
+            if alts.contains(&a_key) {
+                return true;
+            }
+        }
+        false
+    }
 }
 
 /// The public Zhuyin parser type.

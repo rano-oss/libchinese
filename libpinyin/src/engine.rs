@@ -260,7 +260,10 @@ impl Engine {
     pub fn commit(&mut self, phrase: &str) {
         // Persist learning to runtime userdict
         self.model.userdict.learn(phrase);
-        // TODO: schedule background persistence (redb flush) if backend demands it.
+        // Invalidate cache so subsequent input() calls see updated userdict boosts.
+        // Simple approach: clear the whole cache on commit. This is acceptable for
+        // tests and small workloads; can be optimized to selective invalidation later.
+        self.clear_cache();
     }
 
     /// Persist the in-memory userdict to a redb file at `path`.
@@ -334,25 +337,9 @@ impl Engine {
     }
 
 
-
     /// Helper: convert a segmentation (Vec<Syllable>) into a canonical lookup key.
     fn segmentation_to_key(seg: &[Syllable]) -> String {
         seg.iter().map(|s| s.text.as_str()).collect::<String>()
-    }
-
-    /// Convenience: load a `Model` and instantiate Engine using table helpers.
-    ///
-    /// Example (conceptual): Engine::from_model_file(\"model.bin\")
-    pub fn from_model_file<P: AsRef<std::path::Path>>(
-        path: P,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
-        // Use the tables module to read a bincode/fst model.
-        let model = tables::load_model_bincode(path)?;
-        // Create a default parser (in practice the parser is language-specific and must be loaded)
-        let parser = Parser::with_syllables(&[
-            "a", "ai", "an", "ang", "ao", "ba", "bai", "ban", "bang", "bao", "bei", "ben", "beng",
-        ]);
-        Ok(Self::new(model, parser))
     }
 }
 
@@ -534,42 +521,6 @@ pub mod fuzzy {
             1.0
         }
     }
-}
-
-pub mod tables {
-    use libchinese_core::Model;
-    use std::path::Path;
-
-    /// Load a bincode-serialized `Model` produced by the Rust builder.
-    ///
-    /// Note: Full Model serialization is complex due to Arc types and database connections.
-    /// In production, use Engine::from_data_dir() to load components separately.
-    pub fn load_model_bincode<P: AsRef<Path>>(
-        _path: P,
-    ) -> Result<Model, Box<dyn std::error::Error>> {
-        Err(Box::from(
-            "load_model_bincode: Use Engine::from_data_dir() for production model loading",
-        ))
-    }
-
-    /// Save model as bincode (used by builder CLI).
-    ///
-    /// Note: Full Model serialization is complex due to Arc types and database connections.
-    /// In production, save components separately using their individual save methods.
-    pub fn save_model_bincode<P: AsRef<Path>>(
-        _model: &Model,
-        _path: P,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        Err(Box::from(
-            "save_model_bincode: Use individual component save methods for production",
-        ))
-    }
-
-    // TODOs / future responsibilities:
-    // - Implement `load_legacy_phrase_table` to read libpinyin phrase binary formats and
-    //   convert them into the new Model layout (or produce an fst + phrase blob).
-    // - Provide incremental loaders for extremely large models (memory-mapped lexicon + lazy phrase fetch).
-    // - Provide utilities to read `pinyin_parser_table.h`-like generated tables if needed for parity.
 }
 
 #[cfg(test)]
