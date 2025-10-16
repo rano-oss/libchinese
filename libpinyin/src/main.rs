@@ -35,7 +35,20 @@ fn build_demo_model() -> Model {
                     NGramModel::new()
                 };
 
-                let user = UserDict::new();
+                let home = std::env::var("HOME")
+                    .or_else(|_| std::env::var("USERPROFILE"))
+                    .unwrap_or_else(|_| ".".to_string());
+                let user_path = std::path::PathBuf::from(home)
+                    .join(".pinyin")
+                    .join("userdict.redb");
+                let user = UserDict::new(&user_path).unwrap_or_else(|e| {
+                    eprintln!("warning: failed to create userdict at {:?}: {}", user_path, e);
+                    let temp_path = std::env::temp_dir().join(format!(
+                        "libpinyin_userdict_{}.redb",
+                        std::process::id()
+                    ));
+                    UserDict::new(&temp_path).expect("failed to create temp userdict")
+                });
                 let lambdas_fst = Path::new("data").join("pinyin.lambdas.fst");
                 let lambdas_redb = Path::new("data").join("pinyin.lambdas.redb");
                 let interp = if lambdas_fst.exists() && lambdas_redb.exists() {
@@ -67,7 +80,11 @@ fn build_demo_model() -> Model {
     ng.insert_unigram("国", -1.3_f64);
     ng.insert_unigram("华", -2.2_f64);
 
-    let user = UserDict::new();
+    let temp_path = std::env::temp_dir().join(format!(
+        "libpinyin_fallback_userdict_{}.redb",
+        std::process::id()
+    ));
+    let user = UserDict::new(&temp_path).expect("create fallback userdict");
     // seed a user-learned phrase for demo
     user.learn("你好");
 

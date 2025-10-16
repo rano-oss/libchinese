@@ -66,7 +66,14 @@ mod tests {
     #[test]
     fn test_enhanced_userdict_metadata() {
         // Test user dictionary with metadata
-        let userdict = UserDict::new();
+        let temp_path = std::env::temp_dir().join(format!(
+            "test_userdict_metadata_{}.redb",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis()
+        ));
+        let userdict = UserDict::new(&temp_path).expect("create test userdict");
         
         // Learn some phrases
         userdict.learn("测试");
@@ -97,7 +104,14 @@ mod tests {
         // Test that all enhanced formats work together
         let config = Config::default();
         let mut ngram = NGramModel::new();
-        let userdict = UserDict::new();
+        let temp_path = std::env::temp_dir().join(format!(
+            "test_userdict_compat_{}.redb",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis()
+        ));
+        let userdict = UserDict::new(&temp_path).expect("create test userdict");
         
         // Setup test data
         ngram.insert_unigram("测", -2.0);

@@ -25,7 +25,10 @@ fn enhanced_fuzzy_matching_comprehensive_rules() {
     lex.insert("fang", "方");
     
     let ng = NGramModel::new();
-    let user = UserDict::new();
+    let temp_path = std::env::temp_dir().join(format!(
+        "test_userdict_{}.redb", std::process::id()
+    ));
+    let user = UserDict::new(&temp_path).expect("create test userdict");
     let cfg = Config::default(); // Now includes comprehensive fuzzy rules
     let model = Model::new(lex, ng, user, cfg, None);
 
@@ -77,7 +80,10 @@ fn enhanced_ngram_scoring_with_backoff() {
     // Strong trigram for "我爱你"
     ng.insert_trigram("我", "爱", "你", -0.3);
 
-    let user = UserDict::new();
+    let temp_path = std::env::temp_dir().join(format!(
+        "test_userdict_ngram_{}.redb", std::process::id()
+    ));
+    let user = UserDict::new(&temp_path).expect("create test userdict");
     let cfg = Config::default();
     let model = Model::new(lex, ng, user, cfg, None);
 
