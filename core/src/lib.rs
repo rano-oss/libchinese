@@ -3,26 +3,16 @@
 //! Core model, dictionary, n-gram scoring, user dictionary and configuration
 //! shared by language-specific crates (libpinyin, libzhuyin).
 //!
-//! This file contains lightweight, well-documented implementations and public
-//! types intended to be used by downstream crates. Implementations are
-//! intentionally pragmatic and easy to replace with more optimized versions
-//! libchinese-core
-//!
-//! Core model, dictionary, n-gram scoring, user dictionary and configuration
-//! shared by language-specific crates (libpinyin, libzhuyin).
-//!
-//! This file contains lightweight, well-documented implementations and public
-//! types intended to be used by downstream crates. Implementations are
-//! intentionally pragmatic and easy to replace with more optimized versions
-//! (fst-backed lexicon, redb-backed user dictionary, etc).
+//! This crate provides production-ready implementations using FST for lexicons,
+//! redb for user dictionaries, and bincode for serialization.
 //!
 //! Public API:
-//! - `Candidate`
-//! - `Model`
-//! - `NGramModel`
-//! - `Lexicon`
-//! - `UserDict`
-//! - `Config`
+//! - `Candidate` - Scored text candidate with metadata
+//! - `Model` - Complete language model combining all components
+//! - `NGramModel` - Statistical language model with backoff smoothing
+//! - `Lexicon` - Pinyin/Zhuyin → Hanzi dictionary lookup
+//! - `UserDict` - Persistent user learning and frequency adaptation
+//! - `Config` - Configuration and feature flags
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap as AHashMap;
 use std::sync::Arc;
@@ -190,6 +180,7 @@ pub struct Lexicon {
     // stored as "ni'hao".
     no_apos_map: Option<AHashMap<String, u64>>,
     // Metadata for the lexicon format
+    #[allow(dead_code)]
     metadata: LexiconMetadata,
 }
 

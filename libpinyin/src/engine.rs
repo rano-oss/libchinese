@@ -1,24 +1,15 @@
-/*
-libchinese/libpinyin/src/engine.rs
-
-Engine and supporting skeletons for libpinyin.
-
-Responsibilities:
-- Provide a high-level `Engine` that wires parser + core model + fuzzy + tables
-  into a simple `input(&str) -> Vec<Candidate>` API.
-- Provide lightweight skeleton modules for `fuzzy` and `tables` inside this file
-  so the crate has a clear place to continue implementing language-specific
-  functionality (phase 2 -> phase 5).
-*/
+//! Pinyin input method engine
+//!
+//! Provides a high-level Engine that combines parser, model, and fuzzy matching
+//! into a simple `input(text) -> Vec<Candidate>` API with caching optimization.
 
 use std::collections::HashMap;
-use std::path::Path;
 use std::error::Error;
 use std::cell::RefCell;
 
 use crate::parser::Parser;
 use crate::parser::Syllable;
-use libchinese_core::{Candidate, Model, Lexicon, NGramModel, UserDict, Interpolator};
+use libchinese_core::{Candidate, Model, Lexicon, NGramModel, UserDict};
 
 /// Public engine for libpinyin.
 ///
@@ -214,15 +205,9 @@ impl Engine {
             }
 
             // Also always try the exact key to ensure we don't miss direct matches
-            let exact_key_already_tried = candidates.iter().any(|c| {
-                // Check if exact key was already tried by seeing if we have candidates
-                // This is a simple check - we could be more precise
-                true 
-            });
-            if !exact_key_already_tried {
-                let mut exact_candidates = self.model.candidates_for_key(&key, self.limit);
-                candidates.append(&mut exact_candidates);
-            }
+            // Always try the exact key to ensure we don't miss direct matches
+            let mut exact_candidates = self.model.candidates_for_key(&key, self.limit);
+            candidates.append(&mut exact_candidates);
 
             // If this segmentation used any fuzzy matches, apply an additional penalty
             // to the candidates produced for this segmentation. This preserves the
@@ -348,24 +333,7 @@ impl Engine {
         }
     }
 
-    /// Generate fuzzy alternative keys for a given key using the fuzzy map.
-    /// This allows the engine to find candidates for fuzzy matches.
-    /// NOTE: This method is deprecated in favor of generate_fuzzy_key_alternatives_from_segmentation
-    fn generate_fuzzy_key_alternatives(&self, key: &str) -> Vec<String> {
-        let mut alternatives = vec![key.to_string()];
-        
-        // For each syllable in the key, generate fuzzy alternatives
-        // This is a simplified approach - in practice we'd need to parse the key back to syllables
-        // For now, we'll try common fuzzy substitutions on the whole key
-        let fuzzy_alts = self.fuzzy.alternatives(key);
-        for alt in fuzzy_alts {
-            if alt != key && !alternatives.contains(&alt) {
-                alternatives.push(alt);
-            }
-        }
-        
-        alternatives
-    }
+
 
     /// Helper: convert a segmentation (Vec<Syllable>) into a canonical lookup key.
     fn segmentation_to_key(seg: &[Syllable]) -> String {

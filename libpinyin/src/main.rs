@@ -579,7 +579,7 @@ struct VerificationResult {
     score_diff: f32,
 }
 
-fn handle_verify_command(input: &Path, reference: Option<&Path>, output: Option<&Path>, tolerance: f32, only_mismatches: bool) {
+fn handle_verify_command(input: &Path, _reference: Option<&Path>, output: Option<&Path>, tolerance: f32, only_mismatches: bool) {
     println!("🔍 Starting correctness verification");
     println!("  Input file: {}", input.display());
     println!("  Tolerance: ±{:.4}", tolerance);
@@ -617,7 +617,7 @@ fn handle_verify_command(input: &Path, reference: Option<&Path>, output: Option<
             total_matches += 1;
         }
         
-        let score_diff = if let Some(top) = actual_candidates.first() {
+        let score_diff = if actual_candidates.first().is_some() {
             // Placeholder score comparison - in real scenario would compare against reference scores
             if matches { 0.0 } else { 1.0 }
         } else {
@@ -786,7 +786,7 @@ fn handle_perf_command(input: &Path, show_cache: bool, latency: bool) {
     let parser = libpinyin::parser::Parser::with_syllables(&[
         "ni", "hao", "zhong", "guo", "wo", "ai", "ni", "men"
     ]);
-    let mut engine = libpinyin::Engine::new(model, parser);
+    let engine = libpinyin::Engine::new(model, parser);
     
     let mut latencies = Vec::new();
     let mut total_candidates = 0;
