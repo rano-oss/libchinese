@@ -15,25 +15,22 @@ pub struct Lambdas(pub [f32; 3]);
 /// storing bincode-serialized `Lambdas` values keyed by index.
 #[derive(Debug, Clone)]
 pub struct Interpolator {
-    map: Option<Map<Vec<u8>>>,
+    map: Map<Vec<u8>>,
     db_path: Option<String>,
     db: Option<Arc<redb::Database>>,
 }
 
 impl Interpolator {
-    /// Load from fst + redb pair. If fst_path doesn't exist, returns an empty interpolator.
+    /// Load from fst + redb pair. If fst_path doesn't exist, returns an error.
     pub fn load<P: AsRef<Path>>(fst_path: P, redb_path: P) -> Result<Self> {
         let fst_path = fst_path.as_ref();
         let redb_path = redb_path.as_ref();
 
-        let map = if fst_path.exists() {
+        let map = {
             let mut f = File::open(fst_path)?;
             let mut buf = Vec::new();
             f.read_to_end(&mut buf)?;
-            // Map::new takes the underlying data container
-            Some(Map::new(buf)?)
-        } else {
-            None
+            Map::new(buf)?
         };
 
         let (db_path_str, db_opened) = if redb_path.exists() {
@@ -52,13 +49,11 @@ impl Interpolator {
     /// Load from fst data and an already-opened redb Database (avoid reopening on each lookup)
     pub fn load_with_db<P: AsRef<Path>>(fst_path: P, db: redb::Database) -> Result<Self> {
         let fst_path = fst_path.as_ref();
-        let map = if fst_path.exists() {
+        let map = {
             let mut f = File::open(fst_path)?;
             let mut buf = Vec::new();
             f.read_to_end(&mut buf)?;
-            Some(Map::new(buf)?)
-        } else {
-            None
+            Map::new(buf)?
         };
 
         Ok(Self { map, db_path: None, db: Some(Arc::new(db)) })
@@ -67,13 +62,7 @@ impl Interpolator {
     /// Lookup lambdas for a key. Returns None if not found.
     pub fn lookup(&self, key: &str) -> Option<Lambdas> {
         // consult fst + redb
-
-        let map = match &self.map {
-            Some(m) => m,
-            None => return None,
-        };
-
-        let idx = map.get(key)? as u64;
+        let idx = self.map.get(key)? as u64;
 
         // If we have a redb path, open it and read the "lambdas" table at the
         // numeric index. Any error along the way results in None (lookup
