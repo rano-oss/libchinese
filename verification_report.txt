@@ -1,8 +1,0 @@
-# Verification Report
-# Tolerance: ±0.1000
-# Format: test_num\tinput\texpected\tactual\tmatch\tscore_diff
-1	nihao	你好|妳好	你好(-40.0000)	true	0.0000
-2	zhongguo	中国	中国(-40.0000)	true	0.0000
-3	wo	我	NONE	false	1.0000
-4	ai	爱	NONE	false	1.0000
-5	hao	好	NONE	false	1.0000

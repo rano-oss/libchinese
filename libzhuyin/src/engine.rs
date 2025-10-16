@@ -4,12 +4,9 @@
 //! Zhuyin/Bopomofo input method.
 
 use std::collections::HashMap;
-use std::error::Error;
-use std::path::Path;
 
 use crate::parser::{ZhuyinParser, ZhuyinSyllable};
-use libchinese_core::{Candidate, Model, Lexicon, NGramModel, UserDict, Config, Interpolator};
-use std::sync::Arc;
+use libchinese_core::{Candidate, Model};
 
 /// Public engine for libzhuyin
 pub struct Engine {
@@ -29,105 +26,7 @@ impl Engine {
         }
     }
     
-    /// Load an engine from a zhuyin data directory
-    pub fn from_data_dir<P: AsRef<Path>>(data_dir: P) -> Result<Self, Box<dyn Error>> {
-        let data_dir = data_dir.as_ref();
-        
-        // Load lexicon
-        let fst_path = data_dir.join("zhuyin.fst");
-        let redb_path = data_dir.join("zhuyin.redb");
-        
-        let lex = if fst_path.exists() && redb_path.exists() {
-            match Lexicon::load_from_fst_redb(&fst_path, &redb_path) {
-                Ok(l) => l,
-                Err(e) => {
-                    eprintln!("warning: failed to load zhuyin lexicon: {}", e);
-                    Lexicon::new()
-                }
-            }
-        } else {
-            Lexicon::new()
-        };
-        
-        // Load n-gram model
-        let ngram_path = data_dir.join("ngram.bincode");
-        let ngram = if ngram_path.exists() {
-            match std::fs::read(&ngram_path)
-                .ok()
-                .and_then(|b| bincode::deserialize::<NGramModel>(&b).ok())
-            {
-                Some(m) => m,
-                None => {
-                    eprintln!("warning: failed to load zhuyin ngram model");
-                    NGramModel::new()
-                }
-            }
-        } else {
-            NGramModel::new()
-        };
-        
-        // Load user dictionary
-        let userdict_path = data_dir.join("userdict.redb");
-        let userdict = if userdict_path.exists() {
-            match UserDict::new_redb(&userdict_path) {
-                Ok(u) => u,
-                Err(e) => {
-                    eprintln!("warning: failed to load zhuyin userdict: {}", e);
-                    UserDict::new()
-                }
-            }
-        } else {
-            UserDict::new()
-        };
-        
-        // Load interpolator
-        let interp_fst = data_dir.join("zhuyin.lambdas.fst");
-        let interp_redb = data_dir.join("zhuyin.lambdas.redb");
-        let interp = if interp_fst.exists() && interp_redb.exists() {
-            match Interpolator::load(&interp_fst, &interp_redb) {
-                Ok(i) => Some(Arc::new(i)),
-                Err(e) => {
-                    eprintln!("warning: failed to load zhuyin interpolator: {}", e);
-                    None
-                }
-            }
-        } else {
-            None
-        };
-        
-        let cfg = Config::default();
-        let model = Model::new(lex, ngram, userdict, cfg, interp);
-        
-        // Create parser with comprehensive Bopomofo syllables
-        let parser = ZhuyinParser::with_syllables(&[
-            "ㄅㄚ", "ㄅㄞ", "ㄅㄢ", "ㄅㄤ", "ㄅㄠ", "ㄆㄚ", "ㄆㄞ", "ㄆㄢ",
-            "ㄇㄚ", "ㄇㄞ", "ㄇㄢ", "ㄇㄤ", "ㄇㄠ", "ㄈㄚ", "ㄈㄞ", "ㄈㄢ",
-            "ㄉㄚ", "ㄉㄞ", "ㄉㄢ", "ㄉㄤ", "ㄉㄠ", "ㄊㄚ", "ㄊㄞ", "ㄊㄢ",
-            "ㄋㄚ", "ㄋㄞ", "ㄋㄢ", "ㄋㄤ", "ㄋㄠ", "ㄌㄚ", "ㄌㄞ", "ㄌㄢ",
-            "ㄍㄚ", "ㄍㄞ", "ㄍㄢ", "ㄍㄤ", "ㄍㄠ", "ㄎㄚ", "ㄎㄞ", "ㄎㄢ",
-            "ㄏㄚ", "ㄏㄞ", "ㄏㄢ", "ㄏㄤ", "ㄏㄠ", "ㄐㄧ", "ㄐㄧㄚ", "ㄐㄧㄢ",
-            "ㄑㄧ", "ㄑㄧㄚ", "ㄑㄧㄢ", "ㄒㄧ", "ㄒㄧㄚ", "ㄒㄧㄢ",
-            "ㄓ", "ㄓㄚ", "ㄓㄞ", "ㄓㄢ", "ㄓㄤ", "ㄓㄠ", "ㄓㄨ",
-            "ㄔ", "ㄔㄚ", "ㄔㄞ", "ㄔㄢ", "ㄔㄤ", "ㄔㄠ", "ㄔㄨ",
-            "ㄕ", "ㄕㄚ", "ㄕㄞ", "ㄕㄢ", "ㄕㄤ", "ㄕㄠ", "ㄕㄨ",
-            "ㄖ", "ㄖㄚ", "ㄖㄞ", "ㄖㄢ", "ㄖㄤ", "ㄖㄠ", "ㄖㄨ",
-            "ㄗ", "ㄗㄚ", "ㄗㄞ", "ㄗㄢ", "ㄗㄤ", "ㄗㄠ", "ㄗㄨ",
-            "ㄘ", "ㄘㄚ", "ㄘㄞ", "ㄘㄢ", "ㄘㄤ", "ㄘㄠ", "ㄘㄨ",
-            "ㄙ", "ㄙㄚ", "ㄙㄞ", "ㄙㄢ", "ㄙㄤ", "ㄙㄠ", "ㄙㄨ",
-            // With tones
-            "ㄋㄧˇ", "ㄋㄧˊ", "ㄋㄧˋ", "ㄋㄧ˙",
-            "ㄏㄠˇ", "ㄏㄠˊ", "ㄏㄠˋ", "ㄏㄠ˙",
-            "ㄓㄨㄥ", "ㄍㄨㄛˊ",
-        ]);
-        
-        Ok(Self::new(model, parser))
-    }
-    
-    /// Set candidate limit (fluent API)
-    pub fn with_limit(mut self, limit: usize) -> Self {
-        self.limit = limit;
-        self
-    }
+
     
     /// Main input API - convert Bopomofo input to Chinese candidates
     pub fn input(&self, input: &str) -> Vec<Candidate> {
@@ -179,10 +78,7 @@ impl Engine {
         vec
     }
     
-    /// Commit a phrase selection to user dictionary
-    pub fn commit(&mut self, phrase: &str) {
-        self.model.userdict.learn(phrase);
-    }
+
     
     /// Convert segmentation to lookup key
     fn segmentation_to_key(seg: &[ZhuyinSyllable]) -> String {

@@ -124,6 +124,7 @@ pub struct ZhuyinFuzzy {
     /// map canonical -> alternatives
     map: HashMap<String, Vec<String>>,
     /// penalty applied for fuzzy substitutions (tunable)
+    #[allow(dead_code)]
     pub penalty: f32,
 }
 
@@ -170,16 +171,7 @@ impl ZhuyinFuzzy {
         out
     }
 
-    /// Check fuzzy equivalence quick test.
-    pub fn is_equivalent(&self, a: &str, b: &str) -> bool {
-        if a == b {
-            return true;
-        }
-        if let Some(alts) = self.map.get(a) {
-            return alts.iter().any(|x| x == b);
-        }
-        false
-    }
+
 }
 
 /// The public Zhuyin parser type.
@@ -214,10 +206,7 @@ impl ZhuyinParser {
         }
     }
 
-    /// Check whether exact syllable exists.
-    pub fn contains_syllable(&self, syllable: &str) -> bool {
-        self.trie.contains_word(syllable)
-    }
+
 
     /// Best segmentation using dynamic programming.
     /// `allow_fuzzy` permits fuzzy-alternative matching with a penalty.
