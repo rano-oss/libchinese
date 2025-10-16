@@ -6,6 +6,14 @@
 //! This file contains lightweight, well-documented implementations and public
 //! types intended to be used by downstream crates. Implementations are
 //! intentionally pragmatic and easy to replace with more optimized versions
+//! libchinese-core
+//!
+//! Core model, dictionary, n-gram scoring, user dictionary and configuration
+//! shared by language-specific crates (libpinyin, libzhuyin).
+//!
+//! This file contains lightweight, well-documented implementations and public
+//! types intended to be used by downstream crates. Implementations are
+//! intentionally pragmatic and easy to replace with more optimized versions
 //! (fst-backed lexicon, redb-backed user dictionary, etc).
 //!
 //! Public API:
@@ -17,7 +25,16 @@
 //! - `Config`
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap as AHashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
+use fst::Map;
+use fst::Streamer;
+use redb::{Database, TableDefinition};
+use std::fs::File;
+use std::io::Read;
+use bincode;
+
+pub mod ngram;
+pub use ngram::NGramModel;
 
 /// A single text candidate with an associated score.
 ///
@@ -57,11 +74,51 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            fuzzy: vec!["zh=z".into(), "ch=c".into(), "sh=s".into(), "l=n".into()],
+            // Comprehensive fuzzy rules based on libpinyin upstream
+            fuzzy: vec![
+                // Initial consonant confusion (shengmu)
+                "zh=z".into(), "z=zh".into(),
+                "ch=c".into(), "c=ch".into(), 
+                "sh=s".into(), "s=sh".into(),
+                "l=n".into(), "n=l".into(),
+                "l=r".into(), "r=l".into(),
+                "f=h".into(), "h=f".into(),
+                "k=g".into(), "g=k".into(),
+                // Final sound confusion (yunmu)
+                "an=ang".into(), "ang=an".into(),
+                "en=eng".into(), "eng=en".into(),
+                "in=ing".into(), "ing=in".into(),
+            ],
             unigram_weight: 0.6,
             bigram_weight: 0.3,
             trigram_weight: 0.1,
         }
+    }
+}
+
+impl Config {
+    /// Load configuration from a TOML file.
+    pub fn load_toml<P: AsRef<std::path::Path>>(path: P) -> Result<Self, Box<dyn std::error::Error>> {
+        let content = std::fs::read_to_string(path)?;
+        let config: Config = toml::from_str(&content)?;
+        Ok(config)
+    }
+
+    /// Save configuration to a TOML file.
+    pub fn save_toml<P: AsRef<std::path::Path>>(&self, path: P) -> Result<(), Box<dyn std::error::Error>> {
+        let content = toml::to_string_pretty(self)?;
+        std::fs::write(path, content)?;
+        Ok(())
+    }
+
+    /// Load configuration from TOML string.
+    pub fn from_toml_str(content: &str) -> Result<Self, toml::de::Error> {
+        toml::from_str(content)
+    }
+
+    /// Serialize configuration to TOML string.
+    pub fn to_toml_string(&self) -> Result<String, toml::ser::Error> {
+        toml::to_string_pretty(self)
     }
 }
 
@@ -75,6 +132,7 @@ pub mod utils {
 }
 
 /// SingleGram container and helpers (in-memory test-oriented implementation).
+///
 /// Implemented in `core::single_gram`. This module mirrors upstream SingleGram
 /// semantics used by the lookup and training code and is exported for use by
 /// language crates and tests.
@@ -84,22 +142,74 @@ pub use single_gram::SingleGram;
 pub mod interpolation;
 pub use interpolation::{Interpolator, Lambdas};
 
+pub mod userdict;
+pub use userdict::UserDict;
+
 /// Simple in-memory lexicon.
 ///
+/// Metadata for lexicon storage format versioning and compatibility.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct LexiconMetadata {
+    pub version: String,
+    pub created_at: String,
+    pub source_tables: Vec<String>,
+    pub entry_count: usize,
+    pub fst_size_bytes: usize,
+    pub db_size_bytes: usize,
+}
+
+impl Default for LexiconMetadata {
+    fn default() -> Self {
+        Self {
+            version: "1.0".to_string(),
+            created_at: format!("{:?}", std::time::SystemTime::now()),
+            source_tables: vec![],
+            entry_count: 0,
+            fst_size_bytes: 0,
+            db_size_bytes: 0,
+        }
+    }
+}
+
 /// Lookups map a pinyin-sequence key (e.g. "nihao") to a list of Chinese
 /// phrases. This is intentionally basic; downstream crates can replace this
 /// with an `fst`-based implementation for space/time improvements.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default)]
 pub struct Lexicon {
     // Keyed by a "joined" pinyin sequence. In practice, language crates will
     // choose a canonical joiner (like ""), or join on spaces.
     map: AHashMap<String, Vec<String>>,
+    // Optional fst map and redb database for on-demand lookups. If present
+    // and the in-memory `map` doesn't contain the key, the Lexicon will use
+    // the fst -> redb `phrases` table convention to materialize candidates
+    // on demand without loading the whole lexicon into memory.
+    fst_map: Option<Map<Vec<u8>>>,
+    db: Option<Arc<Database>>,
+    // A small mapping from apostrophe-free pinyin keys to fst index. This
+    // speeds up lookups for inputs like "nihao" when the fst keys are
+    // stored as "ni'hao".
+    no_apos_map: Option<AHashMap<String, u64>>,
+    // Metadata for the lexicon format
+    metadata: LexiconMetadata,
+}
+
+// Local type used for deserializing phrase lists stored in the runtime
+// redb `phrases` table.
+#[allow(dead_code)]
+#[derive(Deserialize)]
+struct PhraseEntry {
+    text: String,
+    freq: u64,
 }
 
 impl Lexicon {
     pub fn new() -> Self {
         Self {
             map: AHashMap::new(),
+            fst_map: None,
+            db: None,
+            no_apos_map: None,
+            metadata: LexiconMetadata::default(),
         }
     }
 
@@ -112,7 +222,96 @@ impl Lexicon {
 
     /// Lookup candidates for a given pinyin key.
     pub fn lookup(&self, key: &str) -> Vec<String> {
-        self.map.get(key).cloned().unwrap_or_else(|| Vec::new())
+        // Prefer in-memory map entries
+        if let Some(v) = self.map.get(key) {
+            return v.clone();
+        }
+
+        // Fst + redb on-demand lookup
+        if let Some(map) = &self.fst_map {
+            if let Some(idx) = map.get(key) {
+                let id = idx as u64;
+                if let Some(db_arc) = &self.db {
+                    if let Ok(rt) = db_arc.begin_read() {
+                        let td: TableDefinition<u64, Vec<u8>> = TableDefinition::new("phrases");
+                        if let Ok(table) = rt.open_table(td) {
+                            if let Ok(Some(val)) = table.get(&id) {
+                                let bytes = val.value();
+                                if let Ok(list) = bincode::deserialize::<Vec<PhraseEntry>>(&bytes) {
+                                    return list.into_iter().map(|pe| pe.text).collect();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Try apostrophe-free mapping if present
+        if let Some(map_no) = &self.no_apos_map {
+            if let Some(&id) = map_no.get(key) {
+                if let Some(db_arc) = &self.db {
+                    if let Ok(rt) = db_arc.begin_read() {
+                        let td: TableDefinition<u64, Vec<u8>> = TableDefinition::new("phrases");
+                        if let Ok(table) = rt.open_table(td) {
+                            if let Ok(Some(val)) = table.get(&id) {
+                                let bytes = val.value();
+                                if let Ok(list) = bincode::deserialize::<Vec<PhraseEntry>>(&bytes) {
+                                    return list.into_iter().map(|pe| pe.text).collect();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Vec::new()
+    }
+
+    /// Load lexicon from runtime fst + redb artifacts without materializing
+    /// all phrases. Builds an apostrophe-free key map to support common
+    /// joined-pinyin input.
+    pub fn load_from_fst_redb<P: AsRef<std::path::Path>>(fst_path: P, redb_path: P) -> Result<Self, String> {
+        let fst_path = fst_path.as_ref();
+        let redb_path = redb_path.as_ref();
+
+        // load fst
+        let mut f = File::open(fst_path).map_err(|e| format!("open fst: {}", e))?;
+        let mut buf = Vec::new();
+        f.read_to_end(&mut buf).map_err(|e| format!("read fst: {}", e))?;
+        let map = Map::new(buf).map_err(|e| format!("fst map: {}", e))?;
+
+        // open redb
+        let db = Database::open(redb_path).map_err(|e| format!("open redb: {}", e))?;
+        let arc_db = Arc::new(db);
+
+        // build no_apos_map by iterating keys that contain apostrophes
+        let mut stream = map.stream();
+        let mut no_apos = AHashMap::new();
+        while let Some((k, v)) = stream.next() {
+            if let Ok(s) = std::str::from_utf8(k) {
+                if s.contains('\t') {
+                    let parts: Vec<&str> = s.splitn(2, '\t').collect();
+                    if parts.len() == 2 {
+                        let key = parts[1];
+                        if key.contains('\'') {
+                            let key_no = key.replace('\'', "");
+                            // only insert if not present to preserve first mapping
+                            no_apos.entry(key_no).or_insert(v as u64);
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(Self {
+            map: AHashMap::new(),
+            fst_map: Some(map),
+            db: Some(arc_db),
+            no_apos_map: Some(no_apos),
+            metadata: LexiconMetadata::default(),
+        })
     }
 
     /// Load a small default lexicon (for tests or quick demos).
@@ -126,197 +325,7 @@ impl Lexicon {
     }
 }
 
-/// Lightweight NGram model with unigram, bigram and trigram log-probabilities.
-///
-/// Probabilities are stored as natural log (ln) values. Scoring performs a
-/// linear interpolation of n-gram probabilities using configurable lambda
-/// weights from `Config`.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct NGramModel {
-    // The maps store log probabilities for each n-gram.
-    unigram: AHashMap<String, f32>,                   // log(p(w))
-    bigram: AHashMap<(String, String), f32>,          // log(p(w2|w1))
-    trigram: AHashMap<(String, String, String), f32>, // log(p(w3|w1,w2))
-}
-
-impl NGramModel {
-    pub fn new() -> Self {
-        Self {
-            unigram: AHashMap::new(),
-            bigram: AHashMap::new(),
-            trigram: AHashMap::new(),
-        }
-    }
-
-    /// Insert unigram probability (natural log).
-    pub fn insert_unigram(&mut self, w: &str, log_p: f32) {
-        self.unigram.insert(w.to_string(), log_p);
-    }
-
-    /// Insert bigram probability (natural log).
-    pub fn insert_bigram(&mut self, w1: &str, w2: &str, log_p: f32) {
-        self.bigram.insert((w1.to_string(), w2.to_string()), log_p);
-    }
-
-    /// Insert trigram probability (natural log).
-    pub fn insert_trigram(&mut self, w1: &str, w2: &str, w3: &str, log_p: f32) {
-        self.trigram
-            .insert((w1.to_string(), w2.to_string(), w3.to_string()), log_p);
-    }
-
-    /// Score a token sequence (slice of tokens) using interpolation weights.
-    ///
-    /// This is a simple implementation:
-    /// score = sum_t [ lambda1 * logP_unigram(t) + lambda2 * logP_bigram(prev,t) + lambda3 * logP_trigram(prev2,prev,t) ]
-    ///
-    /// For missing n-grams, the implementation falls back to unigram log-prob
-    /// if present, otherwise a small floor probability is used.
-    pub fn score_sequence(&self, tokens: &[String], cfg: &Config) -> f32 {
-        if tokens.is_empty() {
-            return std::f32::NEG_INFINITY;
-        }
-
-        // floor log-probability: a very small probability in log space
-        let floor = -20.0f32; // ~= 2e-9
-
-        let mut score = 0f32;
-        for i in 0..tokens.len() {
-            let u = self.unigram.get(&tokens[i]).copied().unwrap_or(floor);
-
-            let b = if i >= 1 {
-                let key = (tokens[i - 1].clone(), tokens[i].clone());
-                self.bigram.get(&key).copied().unwrap_or(u)
-            } else {
-                u
-            };
-
-            let t = if i >= 2 {
-                let key = (
-                    tokens[i - 2].clone(),
-                    tokens[i - 1].clone(),
-                    tokens[i].clone(),
-                );
-                self.trigram.get(&key).copied().unwrap_or(b)
-            } else {
-                b
-            };
-
-            let interpolated =
-                cfg.unigram_weight * u + cfg.bigram_weight * b + cfg.trigram_weight * t;
-            score += interpolated;
-        }
-
-        score
-    }
-
-    /// Score sequence but consult an optional Interpolator for per-key lambdas.
-    ///
-    /// `key_for_lookup` is passed to the interpolator to find a per-key lambda
-    /// triple. If no entry is found, falls back to `cfg` weights.
-    pub fn score_sequence_with_interpolator(
-        &self,
-        tokens: &[String],
-        cfg: &Config,
-        key_for_lookup: &str,
-        interpolator: Option<&Interpolator>,
-    ) -> f32 {
-        if tokens.is_empty() {
-            return std::f32::NEG_INFINITY;
-        }
-
-        // floor log-probability
-        let floor = -20.0f32;
-
-        // decide weights
-        let mut weights = [cfg.unigram_weight, cfg.bigram_weight, cfg.trigram_weight];
-        if let Some(interp) = interpolator {
-            if let Some(Lambdas(arr)) = interp.lookup(key_for_lookup) {
-                weights = arr;
-            }
-        }
-
-        // Ensure numerical stability: if weights don't sum to 1, normalize
-        let sum: f32 = weights.iter().copied().sum();
-        if sum > 0.0 {
-            for w in weights.iter_mut() {
-                *w /= sum;
-            }
-        }
-
-        let mut score = 0f32;
-        for i in 0..tokens.len() {
-            let u = self.unigram.get(&tokens[i]).copied().unwrap_or(floor);
-
-            let b = if i >= 1 {
-                let key = (tokens[i - 1].clone(), tokens[i].clone());
-                self.bigram.get(&key).copied().unwrap_or(u)
-            } else {
-                u
-            };
-
-            let t = if i >= 2 {
-                let key = (
-                    tokens[i - 2].clone(),
-                    tokens[i - 1].clone(),
-                    tokens[i].clone(),
-                );
-                self.trigram.get(&key).copied().unwrap_or(b)
-            } else {
-                b
-            };
-
-            let interpolated = weights[0] * u + weights[1] * b + weights[2] * t;
-            score += interpolated;
-        }
-
-        score
-    }
-}
-
-/// User dictionary holding learned phrase frequencies.
-///
-/// This implementation stores data in-memory via a thread-safe map. It is
-/// intended to be swapped for a persistent backend (e.g. `redb`) later.
-#[derive(Debug, Default, Clone)]
-pub struct UserDict {
-    // Map phrase -> frequency (or score)
-    inner: Arc<RwLock<AHashMap<String, u64>>>,
-}
-
-impl UserDict {
-    pub fn new() -> Self {
-        Self {
-            inner: Arc::new(RwLock::new(AHashMap::new())),
-        }
-    }
-
-    /// Increment the learned count for `phrase` by 1.
-    pub fn learn(&self, phrase: &str) {
-        if let Ok(mut map) = self.inner.write() {
-            let c = map.entry(phrase.to_string()).or_insert(0);
-            *c += 1;
-        }
-    }
-
-    /// Get learned frequency for `phrase`.
-    pub fn frequency(&self, phrase: &str) -> u64 {
-        if let Ok(map) = self.inner.read() {
-            map.get(phrase).copied().unwrap_or(0)
-        } else {
-            0
-        }
-    }
-
-    /// Merge another UserDict into this one (summing frequencies).
-    pub fn merge_from(&self, other: &UserDict) {
-        if let (Ok(mut dst), Ok(src)) = (self.inner.write(), other.inner.read()) {
-            for (k, v) in src.iter() {
-                let entry = dst.entry(k.clone()).or_insert(0);
-                *entry += *v;
-            }
-        }
-    }
-}
+// UserDict is implemented in `core::userdict` and exported above.
 
 /// High-level Model combining lexicon, n-gram model and user dictionary.
 ///
@@ -396,86 +405,6 @@ impl Model {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    #[test]
-    fn candidate_and_lexicon_demo() {
-        let lx = Lexicon::load_demo();
-        let mut ng = NGramModel::new();
-
-        // simple unigram log-probabilities for characters used in demo
-        ng.insert_unigram("你", -1.0);
-        ng.insert_unigram("好", -1.2);
-        ng.insert_unigram("号", -2.0);
-        ng.insert_unigram("中", -1.1);
-        ng.insert_unigram("国", -1.3);
-        ng.insert_unigram("华", -2.2);
-
-        let user = UserDict::new();
-        user.learn("你好"); // increase frequency of "你好"
-
-        let cfg = Config::default();
-    let model = Model::new(lx, ng, user, cfg, None);
-
-        let cands = model.candidates_for_key("nihao", 10);
-        assert!(!cands.is_empty());
-        // first candidate should be "你好" because of user learn boost (frequency)
-        assert_eq!(cands[0].text, "你好");
-    }
-
-    #[test]
-    fn ngram_interpolation_behaviour() {
-        let mut ng = NGramModel::new();
-        // unigram log p
-        ng.insert_unigram("a", -1.0);
-        ng.insert_unigram("b", -1.5);
-        ng.insert_unigram("c", -2.0);
-        // bigram log p
-        ng.insert_bigram("a", "b", -0.2);
-        ng.insert_bigram("b", "c", -0.3);
-        // trigram log p
-        ng.insert_trigram("a", "b", "c", -0.05);
-
-        let cfg = Config {
-            unigram_weight: 0.5,
-            bigram_weight: 0.3,
-            trigram_weight: 0.2,
-            fuzzy: vec![],
-        };
-
-        let tokens = vec!["a".to_string(), "b".to_string(), "c".to_string()];
-        let score = ng.score_sequence(&tokens, &cfg);
-
-        // Score should be finite and dominated by better (higher) n-gram values.
-        assert!(score.is_finite());
-        // With trigram present, score should be higher (less negative) than pure unigram sum.
-        let unigram_sum = -1.0 + -1.5 + -2.0;
-        assert!(score > unigram_sum);
-    }
-
-    #[test]
-    fn per_key_interpolation_lookup() {
-        use std::fs::File;
-        use std::io::Write;
-        use fst::MapBuilder;
-
-        // Build simple model where bigram is much better for sequence [a,b]
-        let mut ng = NGramModel::new();
-        ng.insert_unigram("a", -2.0);
-        ng.insert_unigram("b", -2.0);
-        ng.insert_bigram("a", "b", -0.1);
-
-        let cfg = Config::default();
-
-    // create an in-memory interpolator that favors bigram for key "k1"
-    let mut hm = std::collections::HashMap::new();
-    hm.insert("k1".to_string(), Lambdas([0.0f32, 1.0f32, 0.0f32]));
-    let interp = Interpolator::from_map(hm);
-        let tokens = vec!["a".to_string(), "b".to_string()];
-        let base_score = ng.score_sequence(&tokens, &cfg);
-        let with_interp = ng.score_sequence_with_interpolator(&tokens, &cfg, "k1", Some(&interp));
-
-        // with interpolation favoring bigram, score should be higher
-        assert!(with_interp > base_score);
-    }
+    // ... existing tests remain in separate modules; keep this module minimal
 }
+

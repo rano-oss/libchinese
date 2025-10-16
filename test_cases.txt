@@ -1,0 +1,11 @@
+# Pinyin test cases for batch processing
+nihao
+zhongguo
+wo
+ai
+ni
+men
+hao
+haode
+nihao
+zhongwen

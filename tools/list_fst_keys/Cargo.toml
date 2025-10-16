@@ -1,0 +1,8 @@
+[package]
+name = "list_fst_keys"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+fst = "0.4"
+anyhow = "1.0"

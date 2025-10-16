@@ -37,8 +37,8 @@ fn parity_ngram_scoring_example() {
     // Small n-gram scoring parity example. When we port upstream tests, we will
     // compare the computed ln-prob sums against the canonical C++ values.
     let mut m = NGramModel::new();
-    m.insert_unigram("你", -1.0);
-    m.insert_unigram("好", -1.2);
+    m.insert_unigram("你", -1.0_f64);
+    m.insert_unigram("好", -1.2_f64);
     m.insert_bigram("你", "好", -0.2);
 
     let tokens = vec!["你".to_string(), "好".to_string()];
@@ -54,7 +54,7 @@ fn parity_ngram_scoring_example() {
 
     // expected computed score from equivalent arithmetic
     let expected = -1.5_f32;
-    assert!((score - expected).abs() < 1e-4);
+    assert!((score - expected).abs() < 1e-6);
 }
 
 #[test]
@@ -66,8 +66,8 @@ fn parity_engine_lookup_flow() {
     lex.insert("nihao", "你号");
 
     let mut ng = NGramModel::new();
-    ng.insert_unigram("你", -1.0);
-    ng.insert_unigram("好", -1.0);
+    ng.insert_unigram("你", -1.0_f64);
+    ng.insert_unigram("好", -1.0_f64);
 
     // Construct a default UserDict using the current core API.
     let user = UserDict::new();
