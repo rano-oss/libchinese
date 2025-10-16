@@ -1,0 +1,6 @@
+# Verification test cases: input	expected_output1	expected_output2
+nihao	你好	妳好
+zhongguo	中国
+wo	我
+ai	爱
+hao	好

@@ -1,3 +1,4 @@
 /target
 *.fst
 *.redb
+tools/serialize_ngram/target/

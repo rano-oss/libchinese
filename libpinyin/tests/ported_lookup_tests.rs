@@ -24,17 +24,17 @@ fn userdict_commit_changes_ranking_end_to_end() {
     // Tokens are characters; we assign ln-probabilities (higher = less negative).
     let mut ng = NGramModel::new();
     // Shared first character
-    ng.insert_unigram("你", -1.0);
+    ng.insert_unigram("你", -1.0_f64);
     // Make "号" likely (better score) and "好" unlikely so "你号" ranks higher initially.
-    ng.insert_unigram("号", -1.0); // favorable
-    ng.insert_unigram("好", -3.0); // unfavorable
+    ng.insert_unigram("号", -1.0_f64); // favorable
+    ng.insert_unigram("好", -3.0_f64); // unfavorable
 
     // Empty user dictionary initially.
     let user = UserDict::new();
 
     // Config with default interpolation weights (not critical for this test).
     let cfg = Config::default();
-    let model = Model::new(lex, ng, user, cfg, None);
+        let model = Model::new(lex, ng, user, cfg, None);
 
     // Create parser seeded with expected syllables.
     let parser = Parser::with_syllables(&["ni", "hao"]);
@@ -80,9 +80,9 @@ fn model_candidates_for_key_respects_userdict_boost() {
 
     // N-gram probabilities configured to favor "你号" initially
     let mut ng = NGramModel::new();
-    ng.insert_unigram("你", -1.0);
-    ng.insert_unigram("号", -0.5);
-    ng.insert_unigram("好", -3.0);
+    ng.insert_unigram("你", -1.0_f64);
+    ng.insert_unigram("号", -0.5_f64);
+    ng.insert_unigram("好", -3.0_f64);
 
     // Pre-populate userdict and boost "你好" several times
     let user = UserDict::new();
@@ -93,7 +93,7 @@ fn model_candidates_for_key_respects_userdict_boost() {
     }
 
     let cfg = Config::default();
-    let model = Model::new(lex, ng, user, cfg);
+        let model = Model::new(lex, ng, user, cfg, None);
 
     // Directly ask the model for candidates for the key and verify ordering.
     let candidates = model.candidates_for_key("nihao", 10);

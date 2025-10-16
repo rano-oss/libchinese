@@ -1,0 +1,25 @@
+# Example configuration for libchinese
+# This demonstrates the new TOML-based configuration format
+
+# Fuzzy pinyin matching rules
+# Format: "source=target" where source can match target during input
+fuzzy = [
+    # Initial consonant confusion (shengmu)
+    "zh=z", "z=zh",      # zh/z confusion
+    "ch=c", "c=ch",      # ch/c confusion  
+    "sh=s", "s=sh",      # sh/s confusion
+    "l=n", "n=l",        # l/n confusion
+    "l=r", "r=l",        # l/r confusion
+    "f=h", "h=f",        # f/h confusion
+    "k=g", "g=k",        # k/g confusion
+    
+    # Final sound confusion (yunmu)
+    "an=ang", "ang=an",  # an/ang confusion
+    "en=eng", "eng=en",  # en/eng confusion
+    "in=ing", "ing=in",  # in/ing confusion
+]
+
+# N-gram model weights (should sum to 1.0 for best results)
+unigram_weight = 0.6    # Single character probability
+bigram_weight = 0.3     # Two-character sequence probability
+trigram_weight = 0.1    # Three-character sequence probability

@@ -10,3 +10,4 @@ libchinese-core = { path = "../core" }
 phf = { version = "0.11", features = ["macros"] }
 regex = "1.11"
 clap = { version = "4.5", features = ["derive"] }
+bincode = "1.3"

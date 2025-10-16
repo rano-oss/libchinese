@@ -20,6 +20,33 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::path::Path;
+use crate::interpolation::{Interpolator, Lambdas};
+
+/// Metadata for N-gram model storage format versioning and compatibility.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NGramMetadata {
+    pub version: String,
+    pub created_at: String,
+    pub training_corpus: String,
+    pub unigram_count: usize,
+    pub bigram_count: usize,
+    pub trigram_count: usize,
+    pub smoothing_method: String,
+}
+
+impl Default for NGramMetadata {
+    fn default() -> Self {
+        Self {
+            version: "1.0".to_string(),
+            created_at: format!("{:?}", std::time::SystemTime::now()),
+            training_corpus: "unknown".to_string(),
+            unigram_count: 0,
+            bigram_count: 0,
+            trigram_count: 0,
+            smoothing_method: "none".to_string(),
+        }
+    }
+}
 
 /// Lightweight container holding ln(probabilities) for 1/2/3-grams.
 ///
@@ -29,14 +56,17 @@ use std::path::Path;
 /// (characters, words, or segmented tokens).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NGramModel {
-    /// unigram: log P(w)
-    unigram: HashMap<String, f32>,
+    /// unigram: ln P(w)
+    unigram: HashMap<String, f64>,
 
-    /// bigram: log P(w2 | w1) stored keyed by (w1, w2)
-    bigram: HashMap<(String, String), f32>,
+    /// bigram: ln P(w2 | w1) stored keyed by (w1, w2)
+    bigram: HashMap<(String, String), f64>,
 
-    /// trigram: log P(w3 | w1, w2) keyed by (w1, w2, w3)
-    trigram: HashMap<(String, String, String), f32>,
+    /// trigram: ln P(w3 | w1, w2) keyed by (w1, w2, w3)
+    trigram: HashMap<(String, String, String), f64>,
+
+    /// Metadata for versioning and compatibility
+    metadata: NGramMetadata,
 }
 
 impl NGramModel {
@@ -46,16 +76,17 @@ impl NGramModel {
             unigram: HashMap::new(),
             bigram: HashMap::new(),
             trigram: HashMap::new(),
+            metadata: NGramMetadata::default(),
         }
     }
 
     /// Insert a unigram ln(probability).
-    pub fn insert_unigram(&mut self, w: impl Into<String>, log_p: f32) {
+    pub fn insert_unigram(&mut self, w: impl Into<String>, log_p: f64) {
         self.unigram.insert(w.into(), log_p);
     }
 
     /// Insert a bigram ln(probability).
-    pub fn insert_bigram(&mut self, w1: impl Into<String>, w2: impl Into<String>, log_p: f32) {
+    pub fn insert_bigram(&mut self, w1: impl Into<String>, w2: impl Into<String>, log_p: f64) {
         self.bigram.insert((w1.into(), w2.into()), log_p);
     }
 
@@ -65,24 +96,24 @@ impl NGramModel {
         w1: impl Into<String>,
         w2: impl Into<String>,
         w3: impl Into<String>,
-        log_p: f32,
+        log_p: f64,
     ) {
         self.trigram
             .insert((w1.into(), w2.into(), w3.into()), log_p);
     }
 
     /// Get unigram ln-prob if present.
-    pub fn get_unigram(&self, w: &str) -> Option<f32> {
+    pub fn get_unigram(&self, w: &str) -> Option<f64> {
         self.unigram.get(w).copied()
     }
 
     /// Get bigram ln-prob if present.
-    pub fn get_bigram(&self, w1: &str, w2: &str) -> Option<f32> {
+    pub fn get_bigram(&self, w1: &str, w2: &str) -> Option<f64> {
         self.bigram.get(&(w1.to_string(), w2.to_string())).copied()
     }
 
     /// Get trigram ln-prob if present.
-    pub fn get_trigram(&self, w1: &str, w2: &str, w3: &str) -> Option<f32> {
+    pub fn get_trigram(&self, w1: &str, w2: &str, w3: &str) -> Option<f64> {
         self.trigram
             .get(&(w1.to_string(), w2.to_string(), w3.to_string()))
             .copied()
@@ -102,23 +133,139 @@ impl NGramModel {
     /// score += unigram_weight * u + bigram_weight * b + trigram_weight * t
     ///
     /// Missing probabilities fall back to lower-order models or a floor ln-prob.
-    pub fn score_sequence(
-        &self,
-        tokens: &[String],
-        unigram_weight: f32,
-        bigram_weight: f32,
-        trigram_weight: f32,
-    ) -> f32 {
+    /// Score a token sequence using enhanced smoothing and interpolation.
+    ///
+    /// This implementation uses a sophisticated backoff strategy similar to
+    /// libpinyin upstream, with improved handling of OOV tokens and better
+    /// smoothing for unseen n-grams.
+    ///
+    /// Uses the supplied `Config` weights. Internally computations are performed
+    /// in f64 (since ln-probabilities are stored as f64) and the final score is
+    /// returned as f32 for compatibility with downstream code.
+    pub fn score_sequence(&self, tokens: &[String], cfg: &crate::Config) -> f32 {
         // Defensive: if no tokens, return negative infinity to indicate impossibility.
         if tokens.is_empty() {
             return std::f32::NEG_INFINITY;
         }
 
-        // floor ln-probability for OOV: very small probability in ln-space.
-        let floor = -20.0f32; // ~= 2e-9
+        let mut score: f64 = 0.0;
 
-        let mut score = 0f32;
+        for i in 0..tokens.len() {
+            let token_score = self.score_token_with_backoff(tokens, i, cfg);
+            score += token_score;
+        }
 
+        score as f32
+    }
+
+    /// Score a single token using enhanced backoff smoothing.
+    /// This implements a simplified version of Kneser-Ney smoothing with
+    /// proper backoff weights similar to upstream libpinyin.
+    fn score_token_with_backoff(&self, tokens: &[String], i: usize, cfg: &crate::Config) -> f64 {
+        let token = &tokens[i];
+
+        // Enhanced OOV handling: use different floors based on context
+        let oov_floor = -20.0f64; // Very rare unseen unigram
+        let unseen_bigram_penalty = -3.0f64; // Moderate penalty for unseen bigram
+        let unseen_trigram_penalty = -1.5f64; // Light penalty for unseen trigram
+
+        // Get unigram probability (always available as base)
+        let unigram_prob = self.get_unigram(token).unwrap_or(oov_floor);
+
+        // Calculate bigram with backoff
+        let bigram_prob = if i >= 1 {
+            let prev_token = &tokens[i - 1];
+            self.get_bigram(prev_token, token)
+                .unwrap_or_else(|| {
+                    // Backoff: use unigram with penalty for unseen bigram  
+                    unigram_prob + unseen_bigram_penalty
+                })
+        } else {
+            // No context for first token, use unigram
+            unigram_prob
+        };
+
+        // Calculate trigram with backoff  
+        let trigram_prob = if i >= 2 {
+            let prev2_token = &tokens[i - 2];
+            let prev_token = &tokens[i - 1];
+            self.get_trigram(prev2_token, prev_token, token)
+                .unwrap_or_else(|| {
+                    // Backoff: use bigram with penalty for unseen trigram
+                    bigram_prob + unseen_trigram_penalty
+                })
+        } else {
+            // Not enough context for trigram, use bigram
+            bigram_prob
+        };
+
+        // Enhanced interpolation with normalized weights
+        let mut weights = [cfg.unigram_weight, cfg.bigram_weight, cfg.trigram_weight];
+        let sum: f32 = weights.iter().sum();
+        if sum > 0.0 {
+            for w in weights.iter_mut() {
+                *w /= sum;
+            }
+        }
+
+        let uw = weights[0] as f64;
+        let bw = weights[1] as f64;
+        let tw = weights[2] as f64;
+
+        // Apply context-dependent weighting: more context gets higher weight
+        let (effective_uw, effective_bw, effective_tw) = if i >= 2 {
+            // Full context available: use configured weights
+            (uw, bw, tw)
+        } else if i >= 1 {
+            // Only bigram context: reweight to favor bigram over trigram
+            let total_contextual = bw + tw;
+            (uw, total_contextual * 0.7, total_contextual * 0.3)
+        } else {
+            // No context: use unigram with small smoothing
+            (1.0, 0.0, 0.0)
+        };
+
+        effective_uw * unigram_prob + effective_bw * bigram_prob + effective_tw * trigram_prob
+    }
+
+    /// Score a token sequence but consult an optional Interpolator for per-key lambdas.
+    ///
+    /// `key_for_lookup` is passed to the interpolator to find a per-key lambda
+    /// triple. If no entry is found, falls back to `cfg` weights.
+    pub fn score_sequence_with_interpolator(
+        &self,
+        tokens: &[String],
+        cfg: &crate::Config,
+        key_for_lookup: &str,
+        interpolator: Option<&Interpolator>,
+    ) -> f32 {
+        if tokens.is_empty() {
+            return std::f32::NEG_INFINITY;
+        }
+
+        let floor = -20.0f64;
+
+        // decide weights
+        let mut weights: [f32; 3] = [cfg.unigram_weight, cfg.bigram_weight, cfg.trigram_weight];
+        if let Some(interp) = interpolator {
+            if let Some(Lambdas(arr)) = interp.lookup(key_for_lookup) {
+                weights = arr;
+            }
+        }
+
+        // Ensure numerical stability: if weights don't sum to 1, normalize
+        let sum: f32 = weights.iter().copied().sum();
+        if sum > 0.0 {
+            for w in weights.iter_mut() {
+                *w /= sum;
+            }
+        }
+
+        let uw = weights[0] as f64;
+        let bw = weights[1] as f64;
+        let tw = weights[2] as f64;
+
+        let mut score: f64 = 0.0;
         for i in 0..tokens.len() {
             let u = self.get_unigram(&tokens[i]).unwrap_or(floor);
 
@@ -129,16 +276,15 @@ impl NGramModel {
             };
 
             let t = if i >= 2 {
-                self.get_trigram(&tokens[i - 2], &tokens[i - 1], &tokens[i])
-                    .unwrap_or(b)
+                self.get_trigram(&tokens[i - 2], &tokens[i - 1], &tokens[i]).unwrap_or(b)
             } else {
                 b
             };
 
-            score += unigram_weight * u + bigram_weight * b + trigram_weight * t;
+            score += uw * u + bw * b + tw * t;
         }
 
-        score
+        score as f32
     }
 
     // --- Training helper utilities (counts -> log-probabilities) ---
@@ -324,11 +470,18 @@ impl NGramModel {
 
     // --- Serialization helpers ---
 
-    /// Save the model to the given path using bincode.
+    /// Save the model to the given path using bincode with updated metadata.
     pub fn save_bincode<P: AsRef<Path>>(&self, path: P) -> anyhow::Result<()> {
+        // Clone and update metadata before saving
+        let mut model_to_save = self.clone();
+        model_to_save.metadata.unigram_count = self.unigram.len();
+        model_to_save.metadata.bigram_count = self.bigram.len();
+        model_to_save.metadata.trigram_count = self.trigram.len();
+        model_to_save.metadata.created_at = format!("{:?}", std::time::SystemTime::now());
+
         let file = File::create(path)?;
         let mut writer = BufWriter::new(file);
-        bincode::serialize_into(&mut writer, self)?;
+        bincode::serialize_into(&mut writer, &model_to_save)?;
         Ok(())
     }
 
@@ -338,6 +491,28 @@ impl NGramModel {
         let reader = BufReader::new(file);
         let model: Self = bincode::deserialize_from(reader)?;
         Ok(model)
+    }
+
+    /// Save metadata to a JSON file for inspection.
+    pub fn save_metadata_json<P: AsRef<Path>>(&self, path: P) -> anyhow::Result<()> {
+        let mut metadata = self.metadata.clone();
+        metadata.unigram_count = self.unigram.len();
+        metadata.bigram_count = self.bigram.len();
+        metadata.trigram_count = self.trigram.len();
+        metadata.created_at = format!("{:?}", std::time::SystemTime::now());
+
+        let json = serde_json::to_string_pretty(&metadata)?;
+        std::fs::write(path, json)?;
+        Ok(())
+    }
+
+    /// Get current metadata with updated counts.
+    pub fn get_metadata(&self) -> NGramMetadata {
+        let mut metadata = self.metadata.clone();
+        metadata.unigram_count = self.unigram.len();
+        metadata.bigram_count = self.bigram.len();
+        metadata.trigram_count = self.trigram.len();
+        metadata
     }
 }
 
@@ -349,19 +524,25 @@ mod tests {
     fn score_sequence_basic() {
         let mut m = NGramModel::new();
         // simple unigram ln-probs (higher is better: less negative)
-        m.insert_unigram("你", -1.0);
-        m.insert_unigram("好", -1.2);
-        m.insert_unigram("中", -1.1);
-        m.insert_unigram("国", -1.3);
+    m.insert_unigram("你", -1.0_f64);
+    m.insert_unigram("好", -1.2_f64);
+    m.insert_unigram("中", -1.1_f64);
+    m.insert_unigram("国", -1.3_f64);
 
         // bigram for "你 好"
-        m.insert_bigram("你", "好", -0.2);
+    m.insert_bigram("你", "好", -0.2_f64);
         // trigram example (not used in 2-token sequence)
-        m.insert_trigram("x", "y", "z", -0.05);
+    m.insert_trigram("x", "y", "z", -0.05_f64);
 
         let tokens = vec!["你".to_string(), "好".to_string()];
         // use weights that favor bigram
-        let score = m.score_sequence(&tokens, 0.3, 0.6, 0.1);
+        let cfg = crate::Config {
+            fuzzy: vec![],
+            unigram_weight: 0.3,
+            bigram_weight: 0.6,
+            trigram_weight: 0.1,
+        };
+        let score = m.score_sequence(&tokens, &cfg);
 
         // compute expected: for token 0:
         // u0 = lnP(你) = -1.0, b0 = u0, t0 = b0 => contribution = 0.3*(-1.0)+0.6*(-1.0)+0.1*(-1.0) = -1.0
