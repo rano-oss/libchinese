@@ -67,21 +67,12 @@ impl Engine {
     pub fn from_data_dir<P: AsRef<std::path::Path>>(data_dir: P) -> Result<Self, Box<dyn Error>> {
         let data_dir = data_dir.as_ref();
 
-        // Attempt to load lexicon from fst + redb (on-demand lookup). Fallback to demo lexicon.
+        // Load lexicon from fst + redb (required)
         let fst_path = data_dir.join("pinyin.fst");
         let redb_path = data_dir.join("pinyin.redb");
 
-        let lex = if fst_path.exists() && redb_path.exists() {
-            match Lexicon::load_from_fst_redb(&fst_path, &redb_path) {
-                Ok(l) => l,
-                Err(e) => {
-                    eprintln!("warning: failed to load lexicon from artifacts: {}", e);
-                    Lexicon::load_demo()
-                }
-            }
-        } else {
-            Lexicon::load_demo()
-        };
+        let lex = Lexicon::load_from_fst_redb(&fst_path, &redb_path)
+            .map_err(|e| format!("failed to load lexicon from {:?} and {:?}: {}", fst_path, redb_path, e))?;
 
         // Load ngram model if present
         let ngram = {
