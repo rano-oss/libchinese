@@ -3,7 +3,7 @@
 /// These tests validate the comprehensive fuzzy matching rules and enhanced
 /// n-gram scoring implemented as part of completing Step 4.
 
-use libchinese_core::{Config, Lexicon, Model, NGramModel, UserDict};
+use libchinese_core::{Config, Interpolator, Lexicon, Model, NGramModel, UserDict};
 use libpinyin::engine::Engine;
 use libpinyin::parser::Parser;
 
@@ -30,7 +30,7 @@ fn enhanced_fuzzy_matching_comprehensive_rules() {
     ));
     let user = UserDict::new(&temp_path).expect("create test userdict");
     let cfg = Config::default(); // Now includes comprehensive fuzzy rules
-    let model = Model::new(lex, ng, user, cfg, None);
+    let model = Model::new(lex, ng, user, cfg, Interpolator::new());
 
     let parser = Parser::with_syllables(&[
         "zi", "zhi", "si", "shi", "ci", "chi", 
@@ -85,7 +85,7 @@ fn enhanced_ngram_scoring_with_backoff() {
     ));
     let user = UserDict::new(&temp_path).expect("create test userdict");
     let cfg = Config::default();
-    let model = Model::new(lex, ng, user, cfg, None);
+    let model = Model::new(lex, ng, user, cfg, Interpolator::new());
 
     // Test that the enhanced scoring correctly applies backoff smoothing
     let candidates1 = model.candidates_for_key("wo", 5);

@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 
 use crate::parser::{ZhuyinParser, ZhuyinSyllable};
-use libchinese_core::{Candidate, Model};
+use libchinese_core::{Candidate, Interpolator, Model};
 
 /// Public engine for libzhuyin
 pub struct Engine {
@@ -105,7 +105,7 @@ mod tests {
         ));
         let user = UserDict::new(&temp_path).expect("create test userdict");
         let cfg = Config::default();
-        let model = Model::new(lex, ng, user, cfg, None);
+        let model = Model::new(lex, ng, user, cfg, Interpolator::new());
         
         let parser = ZhuyinParser::with_syllables(&["ㄋㄧˇ", "ㄏㄠˇ"]);
         let engine = Engine::new(model, parser);

@@ -1,20 +1,14 @@
 use libchinese_core::{Candidate, Config, Lexicon, Model, NGramModel, UserDict, Interpolator};
+use libzhuyin::{ZhuyinParser, Engine};
 use std::io::{self, BufRead};
 use std::path::Path;
 use std::fs::File;
 use std::io::Read;
-use std::sync::Arc;
-use clap::{Parser, Subcommand};
-
-mod parser;
-mod engine;
-
-use parser::ZhuyinParser;
-use engine::Engine;
+use clap::{Parser as ClapParser, Subcommand};
 
 fn build_demo_model() -> Model {
     // Try to load runtime artifacts from `data/zhuyin/` if they exist
-    let data_dir = Path::new("data/zhuyin");
+    let data_dir = Path::new("../data/zhuyin");
     let fst_path = data_dir.join("zhuyin.fst");
     let redb_path = data_dir.join("zhuyin.redb");
 
@@ -55,18 +49,11 @@ fn build_demo_model() -> Model {
                     UserDict::new(&temp_path).expect("failed to create temp userdict")
                 });
                 
-                // Load zhuyin interpolator if present
+                // Load zhuyin interpolator if present, otherwise use empty one
                 let lambdas_fst = data_dir.join("zhuyin.lambdas.fst");
                 let lambdas_redb = data_dir.join("zhuyin.lambdas.redb");
-                let interp = if lambdas_fst.exists() && lambdas_redb.exists() {
-                    match Interpolator::load(&lambdas_fst, &lambdas_redb) {
-                        Ok(i) => {
-                            println!("loaded zhuyin interpolator");
-                            Some(Arc::new(i))
-                        }
-                        Err(e) => { eprintln!("warning: failed to load zhuyin interpolator: {}", e); None }
-                    }
-                } else { None };
+                let interp = Interpolator::load(&lambdas_fst, &lambdas_redb)
+                    .unwrap_or_else(|_| Interpolator::new());
 
                 let cfg = Config::default();
                 return Model::new(lx, ng, user, cfg, interp);
@@ -97,7 +84,7 @@ fn build_demo_model() -> Model {
     user.learn("你好");
 
     let cfg = Config::default();
-    Model::new(lx, ng, user, cfg, None)
+    Model::new(lx, ng, user, cfg, Interpolator::new())
 }
 
 fn print_candidate(key: &str, cand: &Candidate, idx: usize) {
@@ -143,7 +130,7 @@ fn run_repl() {
     }
 }
 
-#[derive(Parser)]
+#[derive(ClapParser)]
 #[command(name = "libzhuyin")]
 #[command(about = "A Rust implementation of Zhuyin/Bopomofo Chinese input method")]
 #[command(version)]

@@ -10,7 +10,7 @@ use std::cell::RefCell;
 use crate::parser::Parser;
 use crate::parser::Syllable;
 use crate::fuzzy::FuzzyMap;
-use libchinese_core::{Candidate, Model, Lexicon, NGramModel, UserDict};
+use libchinese_core::{Candidate, Interpolator, Model, Lexicon, NGramModel, UserDict};
 
 /// Public engine for libpinyin.
 ///
@@ -62,8 +62,8 @@ impl Engine {
     /// Expected layout (data-dir):
     ///  - pinyin.fst + pinyin.redb         (lexicon)
     ///  - ngram.bincode                    (serialized NGramModel)
-    ///  - pinyin.lambdas.fst + .redb       (optional interpolator)
-    ///  - userdict.redb                     (optional persistent user dictionary)
+    ///  - pinyin.lambdas.fst + .redb       (interpolator)
+    ///  - userdict.redb                     (persistent user dictionary)
     pub fn from_data_dir<P: AsRef<std::path::Path>>(data_dir: P) -> Result<Self, Box<dyn Error>> {
         let data_dir = data_dir.as_ref();
 
@@ -113,16 +113,21 @@ impl Engine {
             }
         };
 
-        // Optional interpolator
+        // Load interpolator or create empty one
         let interp = {
             let lf = data_dir.join("pinyin.lambdas.fst");
             let lr = data_dir.join("pinyin.lambdas.redb");
             if lf.exists() && lr.exists() {
                 match libchinese_core::Interpolator::load(&lf, &lr) {
-                    Ok(i) => Some(std::sync::Arc::new(i)),
-                    Err(e) => { eprintln!("warning: failed to load interpolator: {}", e); None }
+                    Ok(i) => i,
+                    Err(e) => {
+                        eprintln!("warning: failed to load interpolator: {}", e);
+                        Interpolator::new()
+                    }
                 }
-            } else { None }
+            } else {
+                Interpolator::new()
+            }
         };
 
         let cfg = libchinese_core::Config::default();
@@ -359,7 +364,7 @@ mod tests {
         ));
         let user = UserDict::new(&temp_path).expect("create test userdict");
         let cfg = Config::default();
-        let model = Model::new(lex, ng, user, cfg, None);
+        let model = Model::new(lex, ng, user, cfg, Interpolator::new());
 
         // Create parser seeded with syllables
         let parser = crate::parser::Parser::with_syllables(&["ni", "hao"]);

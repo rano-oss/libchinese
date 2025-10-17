@@ -3,12 +3,11 @@ use std::io::{self, BufRead};
 use std::path::Path;
 use std::fs::File;
 use std::io::Read;
-use std::sync::Arc;
 use clap::{Parser, Subcommand};
 
 fn build_model() -> Result<Model, Box<dyn std::error::Error>> {
     // Load runtime artifacts from `data/` directory (required)
-    let data_dir = Path::new("data");
+    let data_dir = Path::new("../data");
     let fst_path = data_dir.join("pinyin.fst");
     let redb_path = data_dir.join("pinyin.redb");
 
@@ -50,22 +49,22 @@ fn build_model() -> Result<Model, Box<dyn std::error::Error>> {
         UserDict::new(&temp_path).expect("failed to create temp userdict")
     });
     
-    // Load interpolator if available
+    // Load interpolator or create empty one
     let lambdas_fst = Path::new("data").join("pinyin.lambdas.fst");
     let lambdas_redb = Path::new("data").join("pinyin.lambdas.redb");
     let interp = if lambdas_fst.exists() && lambdas_redb.exists() {
         match Interpolator::load(&lambdas_fst, &lambdas_redb) {
             Ok(i) => {
                 println!("✓ Loaded interpolator from '{}' + '{}'", lambdas_fst.display(), lambdas_redb.display());
-                Some(Arc::new(i))
+                i
             }
-            Err(e) => { 
-                eprintln!("⚠ Failed to load interpolator: {}", e); 
-                None 
+            Err(e) => {
+                eprintln!("⚠ Failed to load interpolator: {}", e);
+                Interpolator::new()
             }
         }
-    } else { 
-        None 
+    } else {
+        Interpolator::new()
     };
 
     let cfg = Config::default();
