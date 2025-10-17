@@ -15,7 +15,7 @@
 // - Add comprehensive test vectors from upstream test suite
 
 use libchinese_core::TrieNode;
-use std::collections::HashMap;
+use crate::fuzzy::FuzzyMap;
 
 /// A single matched syllable (a chunk of pinyin).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -35,149 +35,6 @@ impl Syllable {
             text: text.into(),
             fuzzy,
         }
-    }
-}
-
-/// Enhanced fuzzy mapping supporting complex pinyin substitution rules.
-/// Based on upstream libpinyin fuzzy matching capabilities.
-///
-/// This handles both shengmu (initial) and yunmu (final) confusions
-/// commonly found in Chinese pinyin input, as well as component-level
-/// substitutions for building complex alternatives.
-#[derive(Debug, Default)]
-pub struct FuzzyMap {
-    /// Direct mapping from input syllable -> vector of alternative syllables
-    /// e.g. "zhi" -> ["zi"], "zi" -> ["zhi"]
-    syllable_map: HashMap<String, Vec<String>>,
-    /// Component-level substitutions for building complex alternatives
-    /// e.g. ("zh", "z"), ("an", "ang")
-    component_rules: Vec<(String, String)>,
-}
-
-impl FuzzyMap {
-    pub fn new() -> Self {
-        let mut fm = Self {
-            syllable_map: HashMap::new(),
-            component_rules: Vec::new(),
-        };
-        fm.initialize_rules();
-        fm.build_syllable_alternatives();
-        fm
-    }
-
-    /// Load comprehensive fuzzy rules from libpinyin upstream analysis
-    fn initialize_rules(&mut self) {
-        // Shengmu (initial consonant) confusions - most common in pinyin input
-        let shengmu_pairs = vec![
-            ("zh", "z"), ("ch", "c"), ("sh", "s"),
-            ("l", "n"), ("l", "r"), ("f", "h"), ("k", "g"),
-        ];
-
-        // Yunmu (final sound) confusions - common nasal confusion
-        let yunmu_pairs = vec![
-            ("an", "ang"), ("en", "eng"), ("in", "ing"),
-        ];
-
-        // Add all pairs symmetrically
-        for (a, b) in shengmu_pairs.into_iter().chain(yunmu_pairs) {
-            self.component_rules.push((a.to_string(), b.to_string()));
-            self.component_rules.push((b.to_string(), a.to_string()));
-        }
-    }
-
-    /// Build complete syllable alternatives using component rules
-    fn build_syllable_alternatives(&mut self) {
-        // Common pinyin syllables that benefit from fuzzy matching
-        let base_syllables = vec![
-            // z/zh series
-            "zi", "zhi", "za", "zha", "ze", "zhe", "zou", "zhou", 
-            "zong", "zhong", "zai", "zhai", "zan", "zhan", "zang", "zhang",
-            "zen", "zhen", "zeng", "zheng", "zao", "zhao", "zu", "zhu",
-            "zuan", "zhuan", "zui", "zhui", "zun", "zhun", "zuo", "zhuo",
-            
-            // c/ch series  
-            "ci", "chi", "ca", "cha", "ce", "che", "cou", "chou",
-            "cong", "chong", "cai", "chai", "can", "chan", "cang", "chang", 
-            "cen", "chen", "ceng", "cheng", "cao", "chao", "cu", "chu",
-            "cuan", "chuan", "cui", "chui", "cun", "chun", "cuo", "chuo",
-            
-            // s/sh series
-            "si", "shi", "sa", "sha", "se", "she", "sou", "shou",
-            "song", "shong", "sai", "shai", "san", "shan", "sang", "shang",
-            "sen", "shen", "seng", "sheng", "sao", "shao", "su", "shu", 
-            "suan", "shuan", "sui", "shui", "sun", "shun", "suo", "shuo",
-            
-            // l/n/r series
-            "lan", "nan", "ran", "lang", "nang", "rang",
-            "len", "nen", "ren", "leng", "neng", "reng",
-            "lin", "nin", "rin", "ling", "ning", "ring",
-            "li", "ni", "ri", "lu", "nu", "ru",
-            
-            // an/ang, en/eng, in/ing series
-            "an", "ang", "en", "eng", "in", "ing",
-            "ban", "bang", "ben", "beng", "bin", "bing",
-            "pan", "pang", "pen", "peng", "pin", "ping",
-            "man", "mang", "men", "meng", "min", "ming",
-            "fan", "fang", "fen", "feng", "fin", "fing",
-            "dan", "dang", "den", "deng", "din", "ding",
-            "tan", "tang", "ten", "teng", "tin", "ting",
-            "gan", "gang", "gen", "geng", "gin", "ging",
-            "kan", "kang", "ken", "keng", "kin", "king",
-            "han", "hang", "hen", "heng", "hin", "hing",
-        ];
-
-        for syllable in &base_syllables {
-            let alternatives = self.generate_alternatives_for_syllable(syllable);
-            if !alternatives.is_empty() {
-                self.syllable_map.insert(syllable.to_string(), alternatives);
-            }
-        }
-    }
-
-    /// Generate fuzzy alternatives for a specific syllable using component rules
-    fn generate_alternatives_for_syllable(&self, syllable: &str) -> Vec<String> {
-        let mut alternatives = Vec::new();
-        
-        // Apply each component rule to see if it creates a valid alternative
-        for (from, to) in &self.component_rules {
-            if syllable.starts_with(from) {
-                let alternative = syllable.replacen(from, to, 1);
-                if alternative != *syllable {
-                    alternatives.push(alternative);
-                }
-            } else if syllable.ends_with(from) {
-                let alternative = syllable.strip_suffix(from)
-                    .map(|prefix| format!("{}{}", prefix, to))
-                    .unwrap_or_else(|| syllable.to_string());
-                if alternative != *syllable {
-                    alternatives.push(alternative);
-                }
-            }
-        }
-        
-        alternatives
-    }
-
-    /// Return alternatives for a syllable (including the syllable itself).
-    /// The engine will apply appropriate penalties for fuzzy matches.
-    pub fn alternatives(&self, syllable: &str) -> Vec<String> {
-        let mut out = Vec::new();
-        out.push(syllable.to_string());
-        
-        // Check direct syllable mapping first
-        if let Some(alts) = self.syllable_map.get(syllable) {
-            out.extend(alts.clone());
-        }
-        
-        // Also try generating alternatives dynamically for syllables not in our map
-        let dynamic_alts = self.generate_alternatives_for_syllable(syllable);
-        for alt in dynamic_alts {
-            if !out.contains(&alt) {
-                out.push(alt);
-            }
-        }
-        
-        out
     }
 }
 
@@ -202,7 +59,7 @@ impl Parser {
     pub fn new() -> Self {
         Self {
             trie: TrieNode::new(),
-            fuzzy: FuzzyMap::new(),
+            fuzzy: FuzzyMap::with_standard_rules(),
         }
     }
 
@@ -235,6 +92,9 @@ impl Parser {
     /// validate fuzzy alternatives without accessing private fields.
     pub fn fuzzy_alternatives(&self, syllable: &str) -> Vec<String> {
         self.fuzzy.alternatives(syllable)
+            .into_iter()
+            .map(|(alt, _penalty)| alt)
+            .collect()
     }
 
     /// Perform segmentation on `input` and return the single-best segmentation.
@@ -366,7 +226,7 @@ impl Parser {
                     }
                     let substr: String = normalized[pos..pos + len].iter().collect();
                     let alts = self.fuzzy.alternatives(&substr);
-                    for alt in alts {
+                    for (alt, penalty) in alts {
                         if self.trie.contains_word(&alt) && alt != substr {
                             // Calculate the actual end position based on the alternative's length
                             // For same-length alternatives, use original end position
@@ -390,8 +250,8 @@ impl Parser {
                                 let cand_cost = seg_cost + best_cost[end];
                                 let cand_parsed = len + best_parsed[end];  // Use original length for parsing position
                                 let cand_keys = 1 + best_num_keys[end];
-                                // fuzzy increases distance by rule-specific penalty
-                                let fuzzy_penalty = self.calculate_fuzzy_penalty(&substr, &alt);
+                                // Use the per-rule penalty from fuzzy map
+                                let fuzzy_penalty = (penalty * 100.0) as i32; // Scale to integer
                                 let cand_dist = fuzzy_penalty + best_distance[end];
 
                                 if should_replace(
@@ -505,48 +365,9 @@ impl Parser {
         base_cost + length_bonus + content_adjustment + fuzzy_penalty
     }
 
-    /// Calculate fuzzy penalty based on the type of substitution made.
-    /// Different fuzzy rules have different penalties based on how common the confusion is.
-    fn calculate_fuzzy_penalty(&self, original: &str, alternative: &str) -> i32 {
-        // This is a simplified penalty system. Upstream libpinyin has per-rule penalties
-        // based on frequency analysis of user errors.
-        
-        if original == alternative {
-            return 0; // No penalty for exact match
-        }
-        
-        // Check for common confusions with lower penalties
-        let low_penalty_pairs = vec![
-            ("zh", "z"), ("z", "zh"),
-            ("ch", "c"), ("c", "ch"),
-            ("sh", "s"), ("s", "sh"),
-        ];
-        
-        for (a, b) in &low_penalty_pairs {
-            if (original.contains(a) && alternative.contains(b)) ||
-               (original.contains(b) && alternative.contains(a)) {
-                return 1; // Low penalty for common shengmu confusions
-            }
-        }
-        
-        // Check for nasal confusions (also common)
-        let nasal_pairs = vec![
-            ("an", "ang"), ("ang", "an"),
-            ("en", "eng"), ("eng", "en"), 
-            ("in", "ing"), ("ing", "in"),
-        ];
-        
-        for (a, b) in &nasal_pairs {
-            if (original.ends_with(a) && alternative.ends_with(b)) ||
-               (original.ends_with(b) && alternative.ends_with(a)) {
-                return 1; // Low penalty for nasal confusions
-            }
-        }
-        
-        // Default higher penalty for other fuzzy matches
-        2
-    }
-
+    /// Return top-K segmentation alternatives (beam search).
+    ///
+    /// This implements a left-to-right beam search that expands exact trie
     /// prefixes and simple fuzzy alternatives (up to a small substring length).
     /// States are ranked by a tuple similar to the DP tie-breakers used in
     /// `segment_best`: (cost ascending, parsed descending, keys ascending, distance ascending).
@@ -649,7 +470,7 @@ impl Parser {
                         }
                         let substr: String = normalized[st.pos..st.pos + len].iter().collect();
                         let alts = self.fuzzy.alternatives(&substr);
-                        for alt in alts.into_iter() {
+                        for (alt, penalty) in alts.into_iter() {
                             // If the alt is an exact syllable in the trie, use it as a fuzzy match
                             if self.trie.contains_word(&alt) {
                                 // only accept substitutions that match the same length in chars
@@ -660,10 +481,10 @@ impl Parser {
                                     let new_state = State {
                                         pos: end,
                                         tokens: new_tokens,
-                                        cost: st.cost + 1.5_f32, // fuzzy heavier than exact
+                                        cost: st.cost + penalty, // Use per-rule penalty
                                         parsed: st.parsed + (end - st.pos),
                                         keys: st.keys + 1,
-                                        dist: st.dist + 1,
+                                        dist: st.dist + (penalty * 100.0) as i32, // Scale for distance
                                     };
                                     next_beam.push(new_state);
                                 }
@@ -785,8 +606,8 @@ mod tests {
         parser.insert_syllable("z");
         // if fuzzy is enabled we at least have the alternative table available
         let alts = parser.fuzzy.alternatives("zh");
-        assert!(alts.contains(&"z".to_string()));
+        assert!(alts.iter().any(|(alt, _)| alt == "z"));
         let alts2 = parser.fuzzy.alternatives("z");
-        assert!(alts2.contains(&"zh".to_string()));
+        assert!(alts2.iter().any(|(alt, _)| alt == "zh"));
     }
 }
