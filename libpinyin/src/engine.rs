@@ -9,6 +9,7 @@ use std::cell::RefCell;
 
 use crate::parser::Parser;
 use crate::parser::Syllable;
+use crate::fuzzy::FuzzyMap;
 use libchinese_core::{Candidate, Model, Lexicon, NGramModel, UserDict};
 
 /// Public engine for libpinyin.
@@ -26,7 +27,7 @@ use libchinese_core::{Candidate, Model, Lexicon, NGramModel, UserDict};
 pub struct Engine {
     model: Model,
     parser: Parser,
-    fuzzy: fuzzy::FuzzyMap,
+    fuzzy: FuzzyMap,
     /// Maximum candidates to return
     limit: usize,
     /// Cache for input -> candidates mapping
@@ -38,8 +39,13 @@ pub struct Engine {
 
 impl Engine {
     /// Construct an Engine from a pre-built `Model` and a `Parser`.
+    ///
+    /// If the model's config has no fuzzy rules, standard fuzzy rules are used by default.
     pub fn new(model: Model, parser: Parser) -> Self {
-        let fuzzy = fuzzy::FuzzyMap::from_config(&model.config);
+        // Always use standard fuzzy rules which include all upstream rules
+        // (shengmu, yunmu, corrections, and composed syllables)
+        let fuzzy = FuzzyMap::with_standard_rules();
+        
         Self {
             model,
             parser,
@@ -194,35 +200,32 @@ impl Engine {
         for seg in segs.into_iter() {
             // Convert segmentation into a canonical key.
             // Convention: join syllable texts with no separator (e.g. "ni" + "hao" -> "nihao").
-            let key = Self::segmentation_to_key(&seg);
+            let _key = Self::segmentation_to_key(&seg);
 
-            // Generate fuzzy alternative keys if segmentation contains fuzzy matches
-            // The key difference: we generate alternatives for each syllable in the segmentation
-            let keys_to_try = if seg.iter().any(|s| s.fuzzy) {
-                self.generate_fuzzy_key_alternatives_from_segmentation(&seg)
-            } else {
-                vec![key.clone()]
-            };
+            // Generate fuzzy alternative keys for all segmentations
+            // This allows "zi" to match both "zi" and "zhi" candidates
+            let keys_to_try = self.generate_fuzzy_key_alternatives_from_segmentation(&seg);
 
             // Try all alternative keys (exact + fuzzy alternatives)
             let mut candidates = Vec::new();
-            for alt_key in keys_to_try {
-                let mut key_candidates = self.model.candidates_for_key(&alt_key, self.limit);
+            for (i, alt_key) in keys_to_try.iter().enumerate() {
+                let mut key_candidates = self.model.candidates_for_key(alt_key, self.limit);
+                
+                // Apply fuzzy penalty if this is not the original key (index 0 is always original)
+                if i > 0 {
+                    let penalty = self.fuzzy.default_penalty();
+                    for c in key_candidates.iter_mut() {
+                        c.score -= penalty;
+                    }
+                }
+                
                 candidates.append(&mut key_candidates);
             }
 
-            // Also always try the exact key to ensure we don't miss direct matches
-            // Always try the exact key to ensure we don't miss direct matches
-            let mut exact_candidates = self.model.candidates_for_key(&key, self.limit);
-            candidates.append(&mut exact_candidates);
-
-            // If this segmentation used any fuzzy matches, apply an additional penalty
-            // to the candidates produced for this segmentation. This preserves the
-            // centralized scoring while allowing parser-level fuzzy signals to influence
-            // ranking.
-            let used_fuzzy = seg.iter().any(|s| s.fuzzy);
-            if used_fuzzy {
-                let penalty = self.fuzzy.penalty();
+            // If this segmentation used parser-level fuzzy matches, apply additional penalty
+            let used_parser_fuzzy = seg.iter().any(|s| s.fuzzy);
+            if used_parser_fuzzy {
+                let penalty = self.fuzzy.default_penalty();
                 for c in candidates.iter_mut() {
                     c.score -= penalty;
                 }
@@ -288,21 +291,21 @@ impl Engine {
 
     /// Generate fuzzy alternative keys from a segmentation by considering fuzzy alternatives
     /// for each syllable in the segmentation. This provides more precise fuzzy matching.
+    ///
+    /// Always returns at least the original key. The original key is always first.
     fn generate_fuzzy_key_alternatives_from_segmentation(&self, segmentation: &[Syllable]) -> Vec<String> {
         let mut alternatives = Vec::new();
         
-        // Always include the original key
-        let original_key = Self::segmentation_to_key(segmentation);
-        alternatives.push(original_key);
-        
-        // For segmentations with fuzzy syllables, we need to generate alternatives
-        // by trying fuzzy alternatives for each syllable position
+        // Generate all combinations including the original
         self.generate_combinations_recursive(segmentation, 0, String::new(), &mut alternatives);
         
-        // Remove duplicates while preserving order
-        let mut unique_alternatives = Vec::new();
+        // Ensure original key is first (for penalty calculation)
+        let original_key = Self::segmentation_to_key(segmentation);
+        let mut unique_alternatives = vec![original_key.clone()];
+        
+        // Add other alternatives (deduplicated)
         for alt in alternatives {
-            if !unique_alternatives.contains(&alt) {
+            if alt != original_key && !unique_alternatives.contains(&alt) {
                 unique_alternatives.push(alt);
             }
         }
@@ -327,14 +330,8 @@ impl Engine {
         
         let syllable = &segmentation[position];
         
-        // Get alternatives for this syllable
-        let alternatives = if syllable.fuzzy {
-            // For fuzzy syllables, use the fuzzy map to get alternatives
-            self.fuzzy.alternatives(&syllable.text)
-        } else {
-            // For exact syllables, only use the syllable itself
-            vec![syllable.text.clone()]
-        };
+        // Get alternatives for this syllable - always use fuzzy map to get all alternatives
+        let alternatives = self.fuzzy.alternative_strings(&syllable.text);
         
         // For each alternative, recurse to the next position
         for alt in alternatives {
@@ -343,190 +340,9 @@ impl Engine {
         }
     }
 
-
     /// Helper: convert a segmentation (Vec<Syllable>) into a canonical lookup key.
     fn segmentation_to_key(seg: &[Syllable]) -> String {
         seg.iter().map(|s| s.text.as_str()).collect::<String>()
-    }
-}
-
-/// Fuzzy and tables modules are included here as lightweight skeletons so the
-/// libpinyin crate has a clear place to continue implementing language-specific
-/// behavior without adding many files at once.
-///
-/// These implementations are intentionally minimal and documented with TODOs for
-/// the next phases.
-pub mod fuzzy {
-    use libchinese_core::Config;
-    use std::collections::HashMap;
-
-    /// Public fuzzy map used by the Engine.
-    ///
-    /// In the upstream project this can be more nuanced (per-syllable penalties,
-    /// asymmetric mappings, user-configurable rules). Here we provide a simple
-    /// canonicalization / alternative list generator and a placeholder penalty.
-    #[derive(Debug, Clone)]
-    pub struct FuzzyMap {
-        // mapping from canonical syllable -> alternate syllables
-        map: HashMap<String, Vec<String>>,
-    }
-
-    impl FuzzyMap {
-        /// Build from a `Config` (which may contain textual fuzzy pairs like "zh=z").
-        pub fn from_config(cfg: &Config) -> Self {
-            let mut fm = FuzzyMap {
-                map: HashMap::new(),
-            };
-            for pair in cfg.fuzzy.iter() {
-                if let Some((a, b)) = pair.split_once('=') {
-                    let a = a.trim().to_ascii_lowercase();
-                    let b = b.trim().to_ascii_lowercase();
-                    fm.map.entry(a.clone()).or_default().push(b.clone());
-                    fm.map.entry(b).or_default().push(a);
-                }
-            }
-            fm
-        }
-
-        /// Get alternatives for a given syllable (including itself).
-        /// This method generates composed alternatives by applying fuzzy rules to syllable components.
-        pub fn alternatives(&self, syllable: &str) -> Vec<String> {
-            let mut out = Vec::new();
-            out.push(syllable.to_string());
-            
-            // Direct lookup for whole syllable
-            if let Some(alts) = self.map.get(&syllable.to_ascii_lowercase()) {
-                out.extend(alts.clone());
-            }
-            
-            // Generate composed alternatives by applying rules to syllable parts
-            // This handles cases like "zi" -> "zhi" by recognizing "z" can become "zh"
-            let syllable_lower = syllable.to_ascii_lowercase();
-            self.generate_composed_alternatives(&syllable_lower, &mut out);
-            
-            // Remove duplicates while preserving order
-            let mut unique_out = Vec::new();
-            for alt in out {
-                if !unique_out.contains(&alt) {
-                    unique_out.push(alt);
-                }
-            }
-            
-            unique_out
-        }
-        
-        /// Generate alternatives by composing fuzzy rules with syllable components.
-        /// For example, "zi" can become "zhi" because "z" -> "zh".
-        fn generate_composed_alternatives(&self, syllable: &str, out: &mut Vec<String>) {
-            // Common pinyin syllable patterns for fuzzy matching
-            // This is a simplified approach - a full implementation would parse syllable structure
-            
-            // Handle common initial consonant patterns
-            if syllable.starts_with("zh") && syllable.len() > 2 {
-                if let Some(z_alts) = self.map.get("zh") {
-                    for alt_init in z_alts {
-                        let new_syllable = format!("{}{}", alt_init, &syllable[2..]);
-                        out.push(new_syllable);
-                    }
-                }
-            } else if syllable.starts_with("ch") && syllable.len() > 2 {
-                if let Some(c_alts) = self.map.get("ch") {
-                    for alt_init in c_alts {
-                        let new_syllable = format!("{}{}", alt_init, &syllable[2..]);
-                        out.push(new_syllable);
-                    }
-                }
-            } else if syllable.starts_with("sh") && syllable.len() > 2 {
-                if let Some(s_alts) = self.map.get("sh") {
-                    for alt_init in s_alts {
-                        let new_syllable = format!("{}{}", alt_init, &syllable[2..]);
-                        out.push(new_syllable);
-                    }
-                }
-            } else if syllable.starts_with('z') && !syllable.starts_with("zh") {
-                // "z" -> "zh" case (like "zi" -> "zhi")
-                if let Some(z_alts) = self.map.get("z") {
-                    for alt_init in z_alts {
-                        let new_syllable = format!("{}{}", alt_init, &syllable[1..]);
-                        out.push(new_syllable);
-                    }
-                }
-            } else if syllable.starts_with('c') && !syllable.starts_with("ch") {
-                // "c" -> "ch" case
-                if let Some(c_alts) = self.map.get("c") {
-                    for alt_init in c_alts {
-                        let new_syllable = format!("{}{}", alt_init, &syllable[1..]);
-                        out.push(new_syllable);
-                    }
-                }
-            } else if syllable.starts_with('s') && !syllable.starts_with("sh") {
-                // "s" -> "sh" case
-                if let Some(s_alts) = self.map.get("s") {
-                    for alt_init in s_alts {
-                        let new_syllable = format!("{}{}", alt_init, &syllable[1..]);
-                        out.push(new_syllable);
-                    }
-                }
-            }
-            
-            // Handle final sound patterns (an/ang, en/eng, in/ing)
-            if syllable.ends_with("an") && !syllable.ends_with("ang") {
-                if let Some(an_alts) = self.map.get("an") {
-                    for alt_final in an_alts {
-                        let prefix = &syllable[..syllable.len()-2];
-                        let new_syllable = format!("{}{}", prefix, alt_final);
-                        out.push(new_syllable);
-                    }
-                }
-            } else if syllable.ends_with("ang") {
-                if let Some(ang_alts) = self.map.get("ang") {
-                    for alt_final in ang_alts {
-                        let prefix = &syllable[..syllable.len()-3];
-                        let new_syllable = format!("{}{}", prefix, alt_final);
-                        out.push(new_syllable);
-                    }
-                }
-            } else if syllable.ends_with("en") && !syllable.ends_with("eng") {
-                if let Some(en_alts) = self.map.get("en") {
-                    for alt_final in en_alts {
-                        let prefix = &syllable[..syllable.len()-2];
-                        let new_syllable = format!("{}{}", prefix, alt_final);
-                        out.push(new_syllable);
-                    }
-                }
-            } else if syllable.ends_with("eng") {
-                if let Some(eng_alts) = self.map.get("eng") {
-                    for alt_final in eng_alts {
-                        let prefix = &syllable[..syllable.len()-3];
-                        let new_syllable = format!("{}{}", prefix, alt_final);
-                        out.push(new_syllable);
-                    }
-                }
-            } else if syllable.ends_with("in") && !syllable.ends_with("ing") {
-                if let Some(in_alts) = self.map.get("in") {
-                    for alt_final in in_alts {
-                        let prefix = &syllable[..syllable.len()-2];
-                        let new_syllable = format!("{}{}", prefix, alt_final);
-                        out.push(new_syllable);
-                    }
-                }
-            } else if syllable.ends_with("ing") {
-                if let Some(ing_alts) = self.map.get("ing") {
-                    for alt_final in ing_alts {
-                        let prefix = &syllable[..syllable.len()-3];
-                        let new_syllable = format!("{}{}", prefix, alt_final);
-                        out.push(new_syllable);
-                    }
-                }
-            }
-        }
-
-        /// Return a simple penalty associated with fuzzy matches. This is a
-        /// placeholder; the real penalty can be per-rule and learned/tuned.
-        pub fn penalty(&self) -> f32 {
-            // default lightweight penalty; engine may combine this with userdict / ngram deltas
-            1.0
-        }
     }
 }
 

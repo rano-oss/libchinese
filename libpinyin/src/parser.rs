@@ -1,22 +1,18 @@
 // libchinese/libpinyin/src/parser.rs
 //
-// Pinyin parser skeleton for libpinyin port.
-// - DP-based segmentation (simple cost model, favors fewer segments / longer matches)
-// - Fuzzy map placeholder (TODO: full fuzzy handling)
+// Pinyin parser for syllable segmentation.
+// - DP-based segmentation with beam search (segment_top_k)
+// - TrieNode for efficient prefix matching
+// - Fuzzy matching integrated via Engine
 //
 // References (upstream C++):
 // - src/storage/pinyin_parser2.cpp
 // - src/storage/pinyin_parser_table.h
 // - src/pinyin.cpp
 //
-// TODOs:
-// - Port the exact DP recurrence and cost model from `pinyin_parser2.cpp` for parity.
-// - Implement full fuzzy substitution handling (insertion/substitution of letters like `zh` <-> `z`).
-// - Expose segmentation alternatives and scores (currently we return a single best segmentation).
-// - Add comprehensive unit tests ported from `tests/storage/test_parser2.cpp`.
-//
-// This file intentionally contains a compact, easy-to-replace implementation that
-// is valid Rust and suitable for iterative improvement.
+// Future enhancements:
+// - Verify exact parity with upstream DP cost model
+// - Add comprehensive test vectors from upstream test suite
 
 use libchinese_core::TrieNode;
 use std::collections::HashMap;

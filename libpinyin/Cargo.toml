@@ -1,9 +1,17 @@
 [package]
 name = "libpinyin"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 description = "Rust reimplementation of libpinyin"
 license = "MIT"
+
+[lib]
+name = "libpinyin"
+path = "src/lib.rs"
+
+[[example]]
+name = "interactive"
+path = "examples/interactive.rs"
 
 [dependencies]
 libchinese-core = { path = "../core" }

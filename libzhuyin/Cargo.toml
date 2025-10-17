@@ -1,9 +1,17 @@
 [package]
 name = "libzhuyin"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 description = "Zhuyin/Bopomofo input engine built on libchinese-core"
 license = "MIT"
+
+[lib]
+name = "libzhuyin"
+path = "src/lib.rs"
+
+[[example]]
+name = "interactive"
+path = "examples/interactive.rs"
 
 [dependencies]
 libchinese-core = { path = "../core" }

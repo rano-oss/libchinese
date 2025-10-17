@@ -9,9 +9,6 @@ runtime semantics required by the lookup and training code:
 - support lookup, insert, set, remove and range search
 - produce normalized frequencies (freq / total) used by lookup scoring
 - merge system + user grams into a merged SingleGram with summed counts
-
-The implementation favors clarity and parity with upstream behavior rather
-than maximal performance or a disk-backed store.
 */
 
 use std::cmp::Ordering;
