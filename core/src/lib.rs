@@ -306,15 +306,6 @@ impl Lexicon {
         })
     }
 
-    /// Load a small default lexicon (for tests or quick demos).
-    pub fn load_demo() -> Self {
-        let mut lx = Self::new();
-        lx.insert("nihao", "你好");
-        lx.insert("nihao", "你号");
-        lx.insert("zhongguo", "中国");
-        lx.insert("zhongguo", "中华");
-        lx
-    }
 }
 
 // UserDict is implemented in `core::userdict` and exported above.

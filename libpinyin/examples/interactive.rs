@@ -6,91 +6,70 @@ use std::io::Read;
 use std::sync::Arc;
 use clap::{Parser, Subcommand};
 
-fn build_demo_model() -> Model {
-    // Prefer loading runtime artifacts from `data/` if they exist. If
-    // loading fails, fall back to the simple in-memory demo model.
+fn build_model() -> Result<Model, Box<dyn std::error::Error>> {
+    // Load runtime artifacts from `data/` directory (required)
     let data_dir = Path::new("data");
     let fst_path = data_dir.join("pinyin.fst");
     let redb_path = data_dir.join("pinyin.redb");
 
-    if fst_path.exists() && redb_path.exists() {
-        // Try to load lexicon on-demand from fst + redb
-        match Lexicon::load_from_fst_redb(&fst_path, &redb_path) {
-            Ok(lx) => {
-                println!("loaded lexicon from artifacts: '{}' + '{}'", fst_path.display(), redb_path.display());
-                // attempt to load ngram model from data/ngram.bincode if present
-                let ng = if let Ok(mut f) = File::open("data/ngram.bincode") {
-                    let mut b = Vec::new();
-                    if f.read_to_end(&mut b).is_ok() {
-                        if let Ok(m) = bincode::deserialize::<NGramModel>(&b) {
-                            println!("loaded ngram model from data/ngram.bincode");
-                            m
-                        } else {
-                            NGramModel::new()
-                        }
-                    } else {
-                        NGramModel::new()
-                    }
-                } else {
-                    NGramModel::new()
-                };
-
-                let home = std::env::var("HOME")
-                    .or_else(|_| std::env::var("USERPROFILE"))
-                    .unwrap_or_else(|_| ".".to_string());
-                let user_path = std::path::PathBuf::from(home)
-                    .join(".pinyin")
-                    .join("userdict.redb");
-                let user = UserDict::new(&user_path).unwrap_or_else(|e| {
-                    eprintln!("warning: failed to create userdict at {:?}: {}", user_path, e);
-                    let temp_path = std::env::temp_dir().join(format!(
-                        "libpinyin_userdict_{}.redb",
-                        std::process::id()
-                    ));
-                    UserDict::new(&temp_path).expect("failed to create temp userdict")
-                });
-                let lambdas_fst = Path::new("data").join("pinyin.lambdas.fst");
-                let lambdas_redb = Path::new("data").join("pinyin.lambdas.redb");
-                let interp = if lambdas_fst.exists() && lambdas_redb.exists() {
-                    match Interpolator::load(&lambdas_fst, &lambdas_redb) {
-                        Ok(i) => {
-                            println!("loaded interpolator from '{}' + '{}'", lambdas_fst.display(), lambdas_redb.display());
-                            Some(Arc::new(i))
-                        }
-                        Err(e) => { eprintln!("warning: failed to load interpolator: {}", e); None }
-                    }
-                } else { None };
-
-                let cfg = Config::default();
-                return Model::new(lx, ng, user, cfg, interp);
+    // Load lexicon from fst + redb (required)
+    let lx = Lexicon::load_from_fst_redb(&fst_path, &redb_path)?;
+    println!("✓ Loaded lexicon from '{}' + '{}'", fst_path.display(), redb_path.display());
+    
+    // Load ngram model from data/ngram.bincode if present
+    let ng = if let Ok(mut f) = File::open("data/ngram.bincode") {
+        let mut b = Vec::new();
+        if f.read_to_end(&mut b).is_ok() {
+            if let Ok(m) = bincode::deserialize::<NGramModel>(&b) {
+                println!("✓ Loaded n-gram model from data/ngram.bincode");
+                m
+            } else {
+                eprintln!("⚠ Failed to deserialize ngram.bincode, using empty model");
+                NGramModel::new()
             }
-            Err(e) => eprintln!("warning: failed to load lexicon from artifacts: {}", e),
+        } else {
+            NGramModel::new()
         }
-    }
+    } else {
+        NGramModel::new()
+    };
 
-    // Fallback: previous in-memory demo
-    let lx = Lexicon::load_demo();
-
-    let mut ng = NGramModel::new();
-    // basic unigram log-probabilities (higher is better i.e. less negative)
-    ng.insert_unigram("你", -1.0_f64);
-    ng.insert_unigram("好", -1.2_f64);
-    ng.insert_unigram("号", -2.0_f64);
-    ng.insert_unigram("中", -1.1_f64);
-    ng.insert_unigram("国", -1.3_f64);
-    ng.insert_unigram("华", -2.2_f64);
-
-    let temp_path = std::env::temp_dir().join(format!(
-        "libpinyin_fallback_userdict_{}.redb",
-        std::process::id()
-    ));
-    let user = UserDict::new(&temp_path).expect("create fallback userdict");
-    // seed a user-learned phrase for demo
-    user.learn("你好");
+    // Load or create userdict
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .unwrap_or_else(|_| ".".to_string());
+    let user_path = std::path::PathBuf::from(home)
+        .join(".pinyin")
+        .join("userdict.redb");
+    let user = UserDict::new(&user_path).unwrap_or_else(|e| {
+        eprintln!("⚠ Failed to create userdict at {:?}: {}", user_path, e);
+        let temp_path = std::env::temp_dir().join(format!(
+            "libpinyin_userdict_{}.redb",
+            std::process::id()
+        ));
+        UserDict::new(&temp_path).expect("failed to create temp userdict")
+    });
+    
+    // Load interpolator if available
+    let lambdas_fst = Path::new("data").join("pinyin.lambdas.fst");
+    let lambdas_redb = Path::new("data").join("pinyin.lambdas.redb");
+    let interp = if lambdas_fst.exists() && lambdas_redb.exists() {
+        match Interpolator::load(&lambdas_fst, &lambdas_redb) {
+            Ok(i) => {
+                println!("✓ Loaded interpolator from '{}' + '{}'", lambdas_fst.display(), lambdas_redb.display());
+                Some(Arc::new(i))
+            }
+            Err(e) => { 
+                eprintln!("⚠ Failed to load interpolator: {}", e); 
+                None 
+            }
+        }
+    } else { 
+        None 
+    };
 
     let cfg = Config::default();
-
-    Model::new(lx, ng, user, cfg, None)
+    Ok(Model::new(lx, ng, user, cfg, interp))
 }
 
 fn print_candidate(key: &str, cand: &Candidate, idx: usize) {
@@ -101,7 +80,7 @@ fn print_candidate(key: &str, cand: &Candidate, idx: usize) {
 }
 
 fn run_repl() {
-    let model = build_demo_model();
+    let model = build_model().expect("Failed to load model. Ensure data files exist in data/ directory.");
     let parser = libpinyin::parser::Parser::with_syllables(&[
         "ni", "hao", "zhong", "guo", "wo", "ai", "ni", "men"  
     ]);
@@ -317,7 +296,7 @@ fn handle_test_command(mode: TestMode, input: &str, output: Option<&Path>, count
         input
     );
     
-    let model = build_demo_model();
+    let model = build_model().expect("Failed to load model. Ensure data files exist in data/ directory.");
     let parser = libpinyin::parser::Parser::with_syllables(&[
         "ni", "hao", "zhong", "guo", "wo", "ai", "ni", "men"
     ]);
@@ -405,7 +384,7 @@ fn handle_batch_test(file_path: &str, output: Option<&Path>, count: usize, verbo
     };
     
     println!("📁 Processing batch test file: {}", file_path);
-    let model = build_demo_model();
+    let model = build_model().expect("Failed to load model. Ensure data files exist in data/ directory.");
     let parser = libpinyin::parser::Parser::with_syllables(&[
         "ni", "hao", "zhong", "guo", "wo", "ai", "ni", "men"
     ]);
@@ -474,7 +453,7 @@ fn handle_interactive_test() {
     println!("🎮 Interactive Testing Mode");
     println!("Type pinyin input and press Enter. Type 'quit' to exit.");
     
-    let model = build_demo_model();
+    let model = build_model().expect("Failed to load model. Ensure data files exist in data/ directory.");
     let parser = libpinyin::parser::Parser::with_syllables(&[
         "ni", "hao", "zhong", "guo", "wo", "ai", "ni", "men"
     ]);
@@ -539,7 +518,7 @@ fn handle_benchmark_command(input: &Path, iterations: usize, warmup: usize) {
     
     println!("📊 Loaded {} test cases", test_cases.len());
     
-    let model = build_demo_model();
+    let model = build_model().expect("Failed to load model. Ensure data files exist in data/ directory.");
     let parser = libpinyin::parser::Parser::with_syllables(&[
         "ni", "hao", "zhong", "guo", "wo", "ai", "ni", "men"
     ]);
@@ -620,7 +599,7 @@ fn handle_verify_command(input: &Path, _reference: Option<&Path>, output: Option
     
     println!("📊 Loaded {} test cases", test_cases.len());
     
-    let model = build_demo_model();
+    let model = build_model().expect("Failed to load model. Ensure data files exist in data/ directory.");
     let parser = libpinyin::parser::Parser::with_syllables(&[
         "ni", "hao", "zhong", "guo", "wo", "ai", "ni", "men"
     ]);
@@ -810,7 +789,7 @@ fn handle_perf_command(input: &Path, show_cache: bool, latency: bool) {
     
     println!("📊 Loaded {} test cases", test_cases.len());
     
-    let model = build_demo_model();
+    let model = build_model().expect("Failed to load model. Ensure data files exist in data/ directory.");
     let parser = libpinyin::parser::Parser::with_syllables(&[
         "ni", "hao", "zhong", "guo", "wo", "ai", "ni", "men"
     ]);
