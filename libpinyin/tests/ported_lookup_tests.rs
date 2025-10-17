@@ -1,4 +1,4 @@
-use libchinese_core::{Config, Lexicon, Model, NGramModel, UserDict};
+use libchinese_core::{Config, Interpolator, Lexicon, Model, NGramModel, UserDict};
 use libpinyin::engine::Engine;
 use libpinyin::parser::Parser;
 
@@ -37,7 +37,7 @@ fn userdict_commit_changes_ranking_end_to_end() {
 
     // Config with default interpolation weights (not critical for this test).
     let cfg = Config::default();
-        let model = Model::new(lex, ng, user, cfg, None);
+        let model = Model::new(lex, ng, user, cfg, Interpolator::new());
 
     // Create parser seeded with expected syllables.
     let parser = Parser::with_syllables(&["ni", "hao"]);
@@ -99,7 +99,7 @@ fn model_candidates_for_key_respects_userdict_boost() {
     }
 
     let cfg = Config::default();
-        let model = Model::new(lex, ng, user, cfg, None);
+        let model = Model::new(lex, ng, user, cfg, Interpolator::new());
 
     // Directly ask the model for candidates for the key and verify ordering.
     let candidates = model.candidates_for_key("nihao", 10);

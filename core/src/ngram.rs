@@ -1,4 +1,4 @@
-//! N-gram model skeleton for libchinese-core.
+//! N-gram model for libchinese-core.
 //!
 //! Responsibilities:
 //! - Store unigram / bigram / trigram log-probabilities.
@@ -237,7 +237,7 @@ impl NGramModel {
         tokens: &[String],
         cfg: &crate::Config,
         key_for_lookup: &str,
-        interpolator: Option<&Interpolator>,
+        interpolator: &Interpolator,
     ) -> f32 {
         if tokens.is_empty() {
             return std::f32::NEG_INFINITY;
@@ -247,10 +247,8 @@ impl NGramModel {
 
         // decide weights
         let mut weights: [f32; 3] = [cfg.unigram_weight, cfg.bigram_weight, cfg.trigram_weight];
-        if let Some(interp) = interpolator {
-            if let Some(Lambdas(arr)) = interp.lookup(key_for_lookup) {
-                weights = arr;
-            }
+        if let Some(Lambdas(arr)) = interpolator.lookup(key_for_lookup) {
+            weights = arr;
         }
 
         // Ensure numerical stability: if weights don't sum to 1, normalize

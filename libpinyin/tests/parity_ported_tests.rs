@@ -8,7 +8,7 @@
 // directory. They exercise public APIs from `libpinyin` and `libchinese-core`.
 // Adjust imports if your Cargo.toml uses different package names.
 
-use libchinese_core::{Config, Lexicon, Model, NGramModel, UserDict};
+use libchinese_core::{Config, Interpolator, Lexicon, Model, NGramModel, UserDict};
 use libpinyin::engine::Engine;
 use libpinyin::parser::Parser;
 
@@ -75,7 +75,7 @@ fn parity_engine_lookup_flow() {
     ));
     let user = UserDict::new(&temp_path).expect("create test userdict");
     let cfg = Config::default();
-    let model = Model::new(lex, ng, user, cfg, None);
+    let model = Model::new(lex, ng, user, cfg, Interpolator::new());
 
     let parser = Parser::with_syllables(&["ni", "hao"]);
     let engine = Engine::new(model, parser);

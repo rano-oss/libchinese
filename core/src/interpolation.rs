@@ -20,6 +20,15 @@ pub struct Interpolator {
 }
 
 impl Interpolator {
+    /// Create an empty interpolator (no lambda lookups will succeed)
+    pub fn new() -> Self {
+        // Create empty FST map
+        let map = Map::default();
+        // Create in-memory temporary database
+        let db = Arc::new(redb::Database::builder().create_with_backend(redb::backends::InMemoryBackend::new()).unwrap());
+        Self { map, db }
+    }
+
     /// Load from fst + redb pair. If fst_path doesn't exist, returns an error.
     pub fn load<P: AsRef<Path>>(fst_path: P, redb_path: P) -> Result<Self> {
         let fst_path = fst_path.as_ref();
