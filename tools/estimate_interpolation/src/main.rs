@@ -1,50 +1,79 @@
 use anyhow::Result;
-use clap::Parser;
 use fst::MapBuilder;
 use redb::{Database, TableDefinition};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
-use std::io::{BufRead, BufReader};
-use std::path::PathBuf;
+use std::io::Read;
+use std::path::Path;
 use libchinese_core::interpolation::Lambdas;
 
-/// Simple utility: read deleted bigram text dump and compute per-left-token
-/// interpolation lambda using the fixed-point iteration from upstream.
-#[derive(Parser)]
-struct Opts {
-    /// Path to deleted bigram text file (format: "w1 w2\t<count>" per line)
-    input: PathBuf,
-
-    /// Output directory for fst+redb (default: data)
-    #[clap(short, long, default_value = "data")]
-    out_dir: PathBuf,
+#[derive(serde::Deserialize)]
+struct LexEntry {
+    utf8: String,
+    token: u32,
+    freq: u32,
 }
 
-fn parse_line(line: &str) -> Option<((String, String), u64)> {
-    let line = line.trim();
-    if line.is_empty() || line.starts_with('#') {
-        return None;
-    }
-    if let Some(pos) = line.rfind('\t') {
-        let part = &line[..pos];
-        let cnt_s = &line[pos + 1..];
-        if let Ok(cnt) = cnt_s.trim().parse::<u64>() {
-            let mut parts: Vec<&str> = part.split_whitespace().collect();
-            if parts.len() == 2 {
-                return Some(((parts[0].to_string(), parts[1].to_string()), cnt));
+// Helper to compute lambdas for a dataset given in-memory payloads
+fn compute_for_dataset<P: AsRef<Path>>(dataset_dir: P, payloads: Vec<Vec<(String, u32, u32)>>) -> Result<()> {
+    let dataset_dir = dataset_dir.as_ref();
+
+    // Build unigram and bigram counts from payloads
+    let mut unigram_counts: HashMap<String, u64> = HashMap::new();
+    let mut bigram_counts: HashMap<(String, String), u64> = HashMap::new();
+
+    for list in payloads.iter() {
+        for pe in list.iter() {
+            let text = &pe.0;
+            let chars: Vec<String> = text.chars().map(|c| c.to_string()).collect();
+            for i in 0..chars.len().saturating_sub(1) {
+                let left = chars[i].clone();
+                let right = chars[i + 1].clone();
+                *bigram_counts.entry((left.clone(), right.clone())).or_default() += 1;
+                *unigram_counts.entry(right).or_default() += 1;
             }
         }
     }
-    // fallback to last whitespace-separated token as count
-    let mut parts: Vec<&str> = line.split_whitespace().collect();
-    if parts.len() >= 3 {
-        if let Ok(cnt) = parts.pop().unwrap().parse::<u64>() {
-            let w2 = parts.pop().unwrap().to_string();
-            let w1 = parts.join(" ");
-            return Some(((w1, w2), cnt));
+
+    // compute deleted pairs: for this simple approach, reuse bigram_counts as deleted_pairs
+    let deleted_pairs = bigram_counts.clone();
+
+    // compute unique prefixes list (left tokens)
+    let mut prefixes: Vec<String> = {
+        let mut s = HashSet::new();
+        for ((w1, _w2), _c) in deleted_pairs.iter() {
+            s.insert(w1.clone());
         }
+        let mut v: Vec<_> = s.into_iter().collect();
+        v.sort();
+        v
+    };
+
+    // prepare outputs: write fst and a bincode lambdas vector (no redb)
+    std::fs::create_dir_all(&dataset_dir)?;
+    let fst_path = dataset_dir.join("lambdas.fst");
+    let bincode_path = dataset_dir.join("lambdas.bincode");
+
+    // build fst
+    let mut map_builder = MapBuilder::new(Vec::new())?;
+    for (i, key) in prefixes.iter().enumerate() {
+        map_builder.insert(key, i as u64)?;
     }
-    None
+    let fst_bytes = map_builder.into_inner()?;
+    std::fs::write(&fst_path, &fst_bytes)?;
+
+    // Prepare a bincode vector for all lambdas so consumers can load directly.
+    let mut b_vec: Vec<Lambdas> = Vec::with_capacity(prefixes.len());
+    for key in prefixes.iter() {
+        let lam = compute_lambda_for_prefix(&deleted_pairs, key, &unigram_counts, &bigram_counts);
+        let l = Lambdas([1.0_f32 - lam, lam, 0.0_f32]);
+        b_vec.push(l);
+    }
+    let bbytes = bincode::serialize(&b_vec)?;
+    std::fs::write(&bincode_path, &bbytes)?;
+
+    println!("wrote {} + {}", fst_path.display(), bincode_path.display());
+    Ok(())
 }
 
 fn compute_lambda_for_prefix(
@@ -105,65 +134,35 @@ fn compute_lambda_for_prefix(
 }
 
 fn main() -> Result<()> {
-    let opts = Opts::parse();
+    // Hardcoded converted dataset directories
+    let converted = Path::new("data/converted");
+    let cases = ["simplified", "traditional", "zhuyin_traditional"];
 
-    // read input
-    let f = File::open(&opts.input)?;
-    let reader = BufReader::new(f);
-
-    let mut deleted_pairs: HashMap<(String, String), u64> = HashMap::new();
-    let mut unigram_counts: HashMap<String, u64> = HashMap::new();
-    let mut bigram_counts: HashMap<(String, String), u64> = HashMap::new();
-
-    for line in reader.lines() {
-        let l = line?;
-        if let Some(((w1, w2), cnt)) = parse_line(&l) {
-            *deleted_pairs.entry((w1.clone(), w2.clone())).or_default() += cnt;
-            *bigram_counts.entry((w1.clone(), w2.clone())).or_default() += cnt;
-            *unigram_counts.entry(w2.clone()).or_default() += cnt;
+    for c in cases.iter() {
+        let dir = converted.join(c);
+        // read lexicon.bincode (Vec<Vec<LexEntry-like>>) format produced by convert_table
+        let bin_path = dir.join("lexicon.bincode");
+        if !bin_path.exists() {
+            eprintln!("warning: {} missing, skipping", bin_path.display());
+            continue;
         }
+        let mut bf = File::open(&bin_path)?;
+        let mut buf = Vec::new();
+        bf.read_to_end(&mut buf)?;
+        // payloads: Vec<Vec<LexEntry>> where LexEntry has utf8, token, freq
+        let raw: Vec<Vec<LexEntry>> = bincode::deserialize(&buf)?;
+        // Normalize into Vec<Vec<(text, token, freq)>> for compute_for_dataset
+        let mut payloads: Vec<Vec<(String, u32, u32)>> = Vec::with_capacity(raw.len());
+        for list in raw.into_iter() {
+            let mut v: Vec<(String, u32, u32)> = Vec::with_capacity(list.len());
+            for e in list.into_iter() {
+                v.push((e.utf8, e.token, e.freq));
+            }
+            payloads.push(v);
+        }
+
+        compute_for_dataset(&dir, payloads)?;
     }
 
-    // compute unique prefixes list (left tokens)
-    let mut prefixes: Vec<String> = {
-        let mut s = HashSet::new();
-        for ((w1, _w2), _c) in deleted_pairs.iter() {
-            s.insert(w1.clone());
-        }
-        let mut v: Vec<_> = s.into_iter().collect();
-        v.sort();
-        v
-    };
-
-    // prepare outputs
-    std::fs::create_dir_all(&opts.out_dir)?;
-    let fst_path = opts.out_dir.join("pinyin.lambdas.fst");
-    let redb_path = opts.out_dir.join("pinyin.lambdas.redb");
-
-    // build fst
-    let mut map_builder = MapBuilder::new(Vec::new())?;
-    for (i, key) in prefixes.iter().enumerate() {
-        map_builder.insert(key, i as u64)?;
-    }
-    let fst_bytes = map_builder.into_inner()?;
-    std::fs::write(&fst_path, &fst_bytes)?;
-
-    // build redb and write lambdas table
-    let db = Database::create(&redb_path)?;
-    let table_def: TableDefinition<u64, Vec<u8>> = TableDefinition::new("lambdas");
-    let wtxn = db.begin_write()?;
-    {
-        let mut table = wtxn.open_table(table_def)?;
-        for (i, key) in prefixes.iter().enumerate() {
-            let lam = compute_lambda_for_prefix(&deleted_pairs, key, &unigram_counts, &bigram_counts);
-            // store as Lambdas([1-l, l, 0.0]) using f32 array (existing Interpolator expects f32)
-            let l = Lambdas([1.0_f32 - lam, lam, 0.0_f32]);
-            let ser = bincode::serialize(&l)?;
-            table.insert(&(i as u64), &ser)?;
-        }
-    }
-    wtxn.commit()?;
-
-    println!("wrote {} + {}", fst_path.display(), redb_path.display());
     Ok(())
 }

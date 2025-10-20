@@ -16,7 +16,9 @@ pub struct Lambdas(pub [f32; 3]);
 #[derive(Debug, Clone)]
 pub struct Interpolator {
     map: Map<Vec<u8>>,
-    db: Arc<redb::Database>,
+    db: Option<Arc<redb::Database>>,
+    // optional in-memory bincode-backed lambdas vector (index -> Lambdas)
+    lambdas_bincode: Option<Vec<Lambdas>>,
 }
 
 impl Interpolator {
@@ -26,7 +28,7 @@ impl Interpolator {
         let map = Map::default();
         // Create in-memory temporary database
         let db = Arc::new(redb::Database::builder().create_with_backend(redb::backends::InMemoryBackend::new()).unwrap());
-        Self { map, db }
+        Self { map, db: Some(db), lambdas_bincode: None }
     }
 
     /// Load from fst + redb pair. If fst_path doesn't exist, returns an error.
@@ -40,15 +42,21 @@ impl Interpolator {
             f.read_to_end(&mut buf)?;
             Map::new(buf)?
         };
-        let db = {
+        // Prefer a sibling bincode file (same stem, .bincode extension) if present.
+        let bincode_path = redb_path.with_extension("bincode");
+        if bincode_path.exists() {
+            let mut f = File::open(&bincode_path)?;
+            let mut buf = Vec::new();
+            f.read_to_end(&mut buf)?;
+            let vec: Vec<Lambdas> = bincode::deserialize(&buf)?;
+            Ok(Self { map, db: None, lambdas_bincode: Some(vec) })
+        } else {
             let pstr = redb_path.to_string_lossy().to_string();
             match redb::Database::open(redb_path) {
-                Ok(db) => Arc::new(db),
-                Err(_) => return Err(anyhow::anyhow!("Interpolator: failed to open redb '{}'", pstr)),
+                Ok(db) => Ok(Self { map, db: Some(Arc::new(db)), lambdas_bincode: None }),
+                Err(_) => Err(anyhow::anyhow!("Interpolator: failed to open redb '{}'", pstr)),
             }
-        };
-
-        Ok(Self { map, db })
+        }
     }
 
     /// Lookup lambdas for a key. Returns None if not found.
@@ -56,8 +64,17 @@ impl Interpolator {
         // consult fst + redb
         let idx = self.map.get(key)? as u64;
 
+        // If we have an in-memory bincode vector, use it.
+        if let Some(ref vec) = self.lambdas_bincode {
+            let i = idx as usize;
+            return vec.get(i).cloned();
+        }
         // Open a read transaction on the cached database
-        let read_txn = match self.db.begin_read() {
+        let db = match &self.db {
+            Some(d) => d,
+            None => { eprintln!("Interpolator: no backing database available"); return None; }
+        };
+        let read_txn = match db.begin_read() {
             Ok(t) => t,
             Err(e) => { eprintln!("Interpolator: begin_read failed: {}", e); return None; }
         };
