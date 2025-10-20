@@ -212,6 +212,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "inspect_converted"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "fst",
+ "libchinese-core",
+ "serde",
+]
+
+[[package]]
 name = "is_terminal_polyfill"
 version = "1.70.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -268,14 +278,6 @@ dependencies = [
  "libchinese-core",
  "phf",
  "regex",
-]
-
-[[package]]
-name = "list_fst_keys"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "fst",
 ]
 
 [[package]]

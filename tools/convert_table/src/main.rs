@@ -33,7 +33,7 @@ fn parse_table_line(line: &str) -> Option<(String, String, u32, u32)> {
     Some((key, chars, token, freq))
 }
 
-fn build_fst_and_bincode<P: AsRef<Path>>(table_paths: &[(&str, P)], out_prefix: &Path, token_mode: &str) -> Result<()> {
+fn build_fst_and_bincode<P: AsRef<Path>>(table_paths: &[(&str, P)], out_prefix: &Path, token_mode: &str, key_type: &str) -> Result<()> {
     // Collect entries into a map keyed by pinyin/zhuyin key -> Vec<LexEntry>
     let mut grouped: BTreeMap<String, Vec<LexEntry>> = BTreeMap::new();
 
@@ -44,14 +44,26 @@ fn build_fst_and_bincode<P: AsRef<Path>>(table_paths: &[(&str, P)], out_prefix: 
             let l = line?;
             if l.trim().is_empty() { continue; }
             if let Some((key, chars, token, freq)) = parse_table_line(&l) {
-                // If input is a tsi (zhuyin) table, convert the key to toneless pinyin
+                // Determine the actual key based on key_type parameter:
+                // - "pinyin": convert zhuyin keys to toneless pinyin
+                // - "zhuyin": keep original zhuyin/bopomofo keys
+                // - "original": keep keys as-is (for non-tsi tables)
                 let actual_key = if name == &"tsi" {
-                    // normalize each syllable produced by conversion
-                    let raw = convert_zhuyin_key_to_pinyin(&key);
-                    let parts: Vec<String> = raw.split('\'')
-                        .map(|p| normalize_pinyin_syllable(p))
-                        .collect();
-                    parts.join("'")
+                    match key_type {
+                        "pinyin" => {
+                            // normalize each syllable produced by conversion
+                            let raw = convert_zhuyin_key_to_pinyin(&key);
+                            let parts: Vec<String> = raw.split('\'')
+                                .map(|p| normalize_pinyin_syllable(p))
+                                .collect();
+                            parts.join("'")
+                        }
+                        "zhuyin" => {
+                            // Keep original bopomofo/zhuyin key (strip tones for normalization)
+                            strip_zhuyin_tone(&key)
+                        }
+                        _ => key.clone()
+                    }
                 } else {
                     // pinyin data already
                     key.clone()
@@ -217,22 +229,6 @@ fn build_fst_and_bincode<P: AsRef<Path>>(table_paths: &[(&str, P)], out_prefix: 
     let mut nbf = File::create(&ngram_path)?;
     bincode::serialize_into(&mut nbf, &model)?;
 
-    // Simple interpolation struct: store a lambda value and version
-    #[derive(Serialize, Deserialize)]
-    struct InterpolationMeta {
-        lambda: f32,
-        version: u32,
-    }
-
-    // basic lambda estimate: normalized to [0.0,1.0], use heuristic based on distinct tokens
-    let lambda = if unigram_counts.len() > 0 {
-        (1.0f32 - (unigram_counts.len() as f32 / 100000.0)).clamp(0.1, 0.9)
-    } else { 0.5 };
-    let interp = InterpolationMeta { lambda, version: 1 };
-    let interp_path = out_prefix.join("interpolation.bincode");
-    let mut ibf = File::create(&interp_path)?;
-    bincode::serialize_into(&mut ibf, &interp)?;
-
     println!("Wrote {} entries, fst={} bincode={}", payloads.len(), fst_path.display(), bin_path.display());
     Ok(())
 }
@@ -378,13 +374,13 @@ fn main() -> Result<()> {
     ];
 
     // Build simplified (pinyin syllable tokenization)
-    build_fst_and_bincode(&simplified_tables, &out_dir.join("simplified"), "pinyin_syllable")?;
+    build_fst_and_bincode(&simplified_tables, &out_dir.join("simplified"), "pinyin_syllable", "original")?;
 
-    // Build traditional (pinyin syllable tokenization)
-    build_fst_and_bincode(&traditional_tables, &out_dir.join("traditional"), "pinyin_syllable")?;
+    // Build traditional (pinyin syllable tokenization, convert zhuyin keys to pinyin)
+    build_fst_and_bincode(&traditional_tables, &out_dir.join("traditional"), "pinyin_syllable", "pinyin")?;
 
-    // Build zhuyin (character tokenization)
-    build_fst_and_bincode(&zhuyin_tables, &out_dir.join("zhuyin_traditional"), "char")?;
+    // Build zhuyin (character tokenization, keep zhuyin/bopomofo keys)
+    build_fst_and_bincode(&zhuyin_tables, &out_dir.join("zhuyin_traditional"), "char", "zhuyin")?;
 
     // No global placeholders here; each dataset has its own ngram/interp artifacts.
 

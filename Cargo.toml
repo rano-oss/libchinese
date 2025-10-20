@@ -3,8 +3,8 @@ members = [
     "core",
     "libpinyin",
     "libzhuyin",
-    "tools/list_fst_keys",
     "tools/estimate_interpolation",
     "tools/convert_table",
+    "tools/inspect_converted",
 ]
 resolver = "2"
