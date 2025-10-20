@@ -77,10 +77,10 @@ impl Engine {
         let ngram = {
             let ng_path = data_dir.join("ngram.bincode");
             if ng_path.exists() {
-                match std::fs::read(&ng_path).ok().and_then(|b| bincode::deserialize::<NGramModel>(&b).ok()) {
-                    Some(m) => m,
-                    None => {
-                        eprintln!("warning: failed to deserialize ngram.bincode, using empty model");
+                match NGramModel::load_bincode(&ng_path) {
+                    Ok(m) => m,
+                    Err(e) => {
+                        eprintln!("warning: failed to load ngram.bincode: {}, using empty model", e);
                         NGramModel::new()
                     }
                 }
@@ -116,17 +116,7 @@ impl Engine {
         let interp = {
             let lf = data_dir.join("lambdas.fst");
             let lb = data_dir.join("lambdas.bincode");
-            if lf.exists() && lb.exists() {
-                match libchinese_core::Interpolator::load(&lf, &lb) {
-                    Ok(i) => i,
-                    Err(e) => {
-                        eprintln!("warning: failed to load interpolator: {}", e);
-                        Interpolator::new()
-                    }
-                }
-            } else {
-                Interpolator::new()
-            }
+            Interpolator::load(&lf, &lb).expect("failed to load interpolator")
         };
 
         let cfg = libchinese_core::Config::default();

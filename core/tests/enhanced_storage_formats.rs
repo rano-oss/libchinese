@@ -28,46 +28,33 @@ mod tests {
     }
 
     #[test] 
-    fn test_enhanced_ngram_metadata() {
-        // Test N-gram model with metadata
+    fn test_enhanced_ngram_serialization() {
+        // Test N-gram model serialization with bincode
         let mut model = NGramModel::new();
         model.insert_unigram("你", -1.0);
         model.insert_unigram("好", -1.2);
         model.insert_bigram("你", "好", -0.5);
         
-        // Get metadata
-        let metadata = model.get_metadata();
-        assert_eq!(metadata.version, "1.0");
-        assert_eq!(metadata.unigram_count, 2);
-        assert_eq!(metadata.bigram_count, 1);
-        assert_eq!(metadata.trigram_count, 0);
-        
-        // Test enhanced serialization
+        // Test bincode serialization
         let bincode_path = "test_ngram.bincode";
-        let metadata_path = "test_ngram.metadata.json";
         
         model.save_bincode(bincode_path).expect("Failed to save bincode");
-        model.save_metadata_json(metadata_path).expect("Failed to save metadata");
         
-        // Load back and verify
+        // Load back and verify data integrity
         let loaded_model = NGramModel::load_bincode(bincode_path).expect("Failed to load bincode");
         assert_eq!(loaded_model.get_unigram("你").unwrap(), -1.0);
-        
-        // Verify metadata JSON exists and is readable
-        let json_content = fs::read_to_string(metadata_path).expect("Failed to read metadata JSON");
-        assert!(json_content.contains("\"version\": \"1.0\""));
-        assert!(json_content.contains("\"unigram_count\": 2"));
+        assert_eq!(loaded_model.get_unigram("好").unwrap(), -1.2);
+        assert_eq!(loaded_model.get_bigram("你", "好").unwrap(), -0.5);
         
         // Cleanup
         let _ = fs::remove_file(bincode_path);
-        let _ = fs::remove_file(metadata_path);
     }
 
     #[test]
-    fn test_enhanced_userdict_metadata() {
-        // Test user dictionary with metadata
+    fn test_enhanced_userdict_basic() {
+        // Test user dictionary basic functionality
         let temp_path = std::env::temp_dir().join(format!(
-            "test_userdict_metadata_{}.redb",
+            "test_userdict_basic_{}.redb",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
@@ -80,28 +67,20 @@ mod tests {
         userdict.learn("测试"); // Learn again to increase frequency
         userdict.learn("词典");
         
-        // Get metadata
-        let metadata = userdict.get_metadata();
-        assert_eq!(metadata.version, "1.0");
-        assert_eq!(metadata.entry_count, 2);
-        assert_eq!(metadata.total_frequency, 3); // "测试" = 2, "词典" = 1
+        // Verify learning worked
+        assert_eq!(userdict.frequency("测试"), 2);
+        assert_eq!(userdict.frequency("词典"), 1);
         
-        // Test metadata export
-        let metadata_path = "test_userdict.metadata.json";
-        userdict.export_metadata_json(metadata_path).expect("Failed to export metadata");
-        
-        // Verify JSON content
-        let json_content = fs::read_to_string(metadata_path).expect("Failed to read metadata JSON");
-        assert!(json_content.contains("\"entry_count\": 2"));
-        assert!(json_content.contains("\"total_frequency\": 3"));
-        
-        // Cleanup
-        let _ = fs::remove_file(metadata_path);
+        // Verify snapshot
+        let snapshot = userdict.snapshot();
+        assert_eq!(snapshot.len(), 2);
+        assert_eq!(snapshot.get("测试"), Some(&2));
+        assert_eq!(snapshot.get("词典"), Some(&1));
     }
 
     #[test]
     fn test_storage_format_compatibility() {
-        // Test that all enhanced formats work together
+        // Test that all storage formats work together
         let config = Config::default();
         let mut ngram = NGramModel::new();
         let temp_path = std::env::temp_dir().join(format!(
@@ -119,24 +98,18 @@ mod tests {
         ngram.insert_bigram("测", "试", -1.0);
         userdict.learn("测试");
         
-        // Test all metadata functions
+        // Test serialization
         let config_toml = config.to_toml_string().expect("Config TOML serialization failed");
-        let ngram_metadata = ngram.get_metadata();
-        let userdict_metadata = userdict.get_metadata();
         
-        // Debug TOML content
-        println!("TOML content: {}", config_toml);
-        
-        // Verify metadata consistency - check for fuzzy array instead of [fuzzy] section
+        // Verify data integrity
         assert!(config_toml.contains("fuzzy = ["));
-        assert_eq!(ngram_metadata.unigram_count, 2);
-        assert_eq!(ngram_metadata.bigram_count, 1);
-        assert_eq!(userdict_metadata.entry_count, 1);
-        assert_eq!(userdict_metadata.total_frequency, 1);
+        assert_eq!(ngram.get_unigram("测").unwrap(), -2.0);
+        assert_eq!(ngram.get_bigram("测", "试").unwrap(), -1.0);
+        assert_eq!(userdict.frequency("测试"), 1);
         
         println!("✓ Enhanced storage formats working correctly!");
         println!("  - Config: {} fuzzy rules", config.fuzzy.len());
-        println!("  - N-gram: {} unigrams, {} bigrams", ngram_metadata.unigram_count, ngram_metadata.bigram_count);
-        println!("  - UserDict: {} entries, {} total frequency", userdict_metadata.entry_count, userdict_metadata.total_frequency);
+        println!("  - N-gram: data loaded successfully");
+        println!("  - UserDict: 1 entry learned");
     }
 }

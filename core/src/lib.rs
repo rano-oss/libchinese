@@ -139,32 +139,6 @@ pub use interpolation::{Interpolator, Lambdas};
 pub mod userdict;
 pub use userdict::UserDict;
 
-/// Simple in-memory lexicon.
-///
-/// Metadata for lexicon storage format versioning and compatibility.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct LexiconMetadata {
-    pub version: String,
-    pub created_at: String,
-    pub source_tables: Vec<String>,
-    pub entry_count: usize,
-    pub fst_size_bytes: usize,
-    pub db_size_bytes: usize,
-}
-
-impl Default for LexiconMetadata {
-    fn default() -> Self {
-        Self {
-            version: "1.0".to_string(),
-            created_at: format!("{:?}", std::time::SystemTime::now()),
-            source_tables: vec![],
-            entry_count: 0,
-            fst_size_bytes: 0,
-            db_size_bytes: 0,
-        }
-    }
-}
-
 /// Lexicon entry matching convert_table output format
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct LexEntry {
@@ -183,8 +157,6 @@ pub struct Lexicon {
     fst_map: Option<Map<Vec<u8>>>,
     // Bincode-serialized payload vector (index -> Vec<LexEntry>)
     payloads: Option<Vec<Vec<LexEntry>>>,
-    // Metadata for the lexicon format
-    metadata: LexiconMetadata,
 }
 
 impl Lexicon {
@@ -193,7 +165,6 @@ impl Lexicon {
             map: AHashMap::new(),
             fst_map: None,
             payloads: None,
-            metadata: LexiconMetadata::default(),
         }
     }
 
@@ -249,7 +220,6 @@ impl Lexicon {
             map: AHashMap::new(),
             fst_map: Some(map),
             payloads: Some(payloads),
-            metadata: LexiconMetadata::default(),
         })
     }
 }

@@ -4,32 +4,8 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use serde::{Serialize, Deserialize};
 
 use redb::{Database, TableDefinition, ReadableTable};
-
-/// Metadata for user dictionary storage format versioning and compatibility.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UserDictMetadata {
-    pub version: String,
-    pub created_at: String,
-    pub last_modified: String,
-    pub entry_count: usize,
-    pub total_frequency: u64,
-}
-
-impl Default for UserDictMetadata {
-    fn default() -> Self {
-        let now = format!("{:?}", std::time::SystemTime::now());
-        Self {
-            version: "1.0".to_string(),
-            created_at: now.clone(),
-            last_modified: now,
-            entry_count: 0,
-            total_frequency: 0,
-        }
-    }
-}
 
 /// UserDict backed by `redb`.
 #[derive(Clone, Debug)]
@@ -170,27 +146,6 @@ impl UserDict {
             }
         }
         Ok(out)
-    }
-
-    /// Get metadata about the user dictionary.
-    pub fn get_metadata(&self) -> UserDictMetadata {
-        let snapshot = self.snapshot();
-        let now = format!("{:?}", std::time::SystemTime::now());
-        UserDictMetadata {
-            version: "1.0".to_string(),
-            created_at: now.clone(), // Could be stored in DB metadata table
-            last_modified: now,
-            entry_count: snapshot.len(),
-            total_frequency: snapshot.values().sum(),
-        }
-    }
-
-    /// Export metadata to JSON file.
-    pub fn export_metadata_json<P: AsRef<std::path::Path>>(&self, path: P) -> Result<(), Box<dyn std::error::Error>> {
-        let metadata = self.get_metadata();
-        let json = serde_json::to_string_pretty(&metadata)?;
-        std::fs::write(path, json)?;
-        Ok(())
     }
 }
 

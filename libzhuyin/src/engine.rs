@@ -4,9 +4,10 @@
 //! Zhuyin/Bopomofo input method.
 
 use std::collections::HashMap;
+use std::error::Error;
 
 use crate::parser::{ZhuyinParser, ZhuyinSyllable};
-use libchinese_core::{Candidate, Model, FuzzyMap};
+use libchinese_core::{Candidate, Model, FuzzyMap, Lexicon, NGramModel, UserDict, Config, Interpolator};
 
 /// Public engine for libzhuyin
 pub struct Engine {
@@ -44,6 +45,89 @@ impl Engine {
             fuzzy,
             limit: 8,
         }
+    }
+
+    /// Load an engine from a model directory containing runtime artifacts.
+    ///
+    /// Expected layout (data-dir):
+    ///  - lexicon.fst + lexicon.bincode    (lexicon for zhuyin)
+    ///  - ngram.bincode                     (serialized NGramModel)
+    ///  - lambdas.fst + lambdas.bincode    (interpolator for zhuyin)
+    ///  - userdict.redb                     (persistent user dictionary)
+    pub fn from_data_dir<P: AsRef<std::path::Path>>(data_dir: P) -> Result<Self, Box<dyn Error>> {
+        let data_dir = data_dir.as_ref();
+
+        // Load lexicon from fst + bincode (required)
+        let fst_path = data_dir.join("lexicon.fst");
+        let bincode_path = data_dir.join("lexicon.bincode");
+
+        let lex = Lexicon::load_from_fst_bincode(&fst_path, &bincode_path)
+            .map_err(|e| format!("failed to load lexicon from {:?} and {:?}: {}", fst_path, bincode_path, e))?;
+
+        // Load ngram model if present
+        let ngram = {
+            let ng_path = data_dir.join("ngram.bincode");
+            if ng_path.exists() {
+                match NGramModel::load_bincode(&ng_path) {
+                    Ok(m) => m,
+                    Err(e) => {
+                        eprintln!("warning: failed to load ngram.bincode: {}, using empty model", e);
+                        NGramModel::new()
+                    }
+                }
+            } else {
+                eprintln!("warning: ngram.bincode not found, using empty model");
+                NGramModel::new()
+            }
+        };
+
+        // Userdict: use persistent userdict at ~/.zhuyin/userdict.redb
+        let userdict = {
+            let home = std::env::var("HOME")
+                .or_else(|_| std::env::var("USERPROFILE"))
+                .unwrap_or_else(|_| ".".to_string());
+            let ud_path = std::path::PathBuf::from(home)
+                .join(".zhuyin")
+                .join("userdict.redb");
+            
+            match UserDict::new(&ud_path) {
+                Ok(u) => u,
+                Err(e) => {
+                    eprintln!("warning: failed to open userdict at {:?}: {}", ud_path, e);
+                    // Fallback to temp userdict
+                    let temp_path = std::env::temp_dir().join(format!(
+                        "libzhuyin_userdict_{}.redb",
+                        std::process::id()
+                    ));
+                    UserDict::new(&temp_path).expect("failed to create temp userdict")
+                }
+            }
+        };
+
+        // Load interpolator or create empty one
+        let interp = {
+            let lf = data_dir.join("lambdas.fst");
+            let lb = data_dir.join("lambdas.bincode");
+            if lf.exists() && lb.exists() {
+                match Interpolator::load(&lf, &lb) {
+                    Ok(i) => i,
+                    Err(e) => {
+                        eprintln!("warning: failed to load lambdas: {}, using empty interpolator", e);
+                        Interpolator::new()
+                    }
+                }
+            } else {
+                Interpolator::new()
+            }
+        };
+
+        let cfg = Config::default();
+        let model = Model::new(lex, ngram, userdict, cfg, interp);
+
+        // Build parser with zhuyin syllables (all bopomofo syllables)
+        let parser = ZhuyinParser::new();
+
+        Ok(Self::new(model, parser))
     }
     
     /// Main input API - convert Bopomofo input to Chinese candidates

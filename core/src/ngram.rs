@@ -22,32 +22,6 @@ use std::io::{BufReader, BufWriter};
 use std::path::Path;
 use crate::interpolation::{Interpolator, Lambdas};
 
-/// Metadata for N-gram model storage format versioning and compatibility.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NGramMetadata {
-    pub version: String,
-    pub created_at: String,
-    pub training_corpus: String,
-    pub unigram_count: usize,
-    pub bigram_count: usize,
-    pub trigram_count: usize,
-    pub smoothing_method: String,
-}
-
-impl Default for NGramMetadata {
-    fn default() -> Self {
-        Self {
-            version: "1.0".to_string(),
-            created_at: format!("{:?}", std::time::SystemTime::now()),
-            training_corpus: "unknown".to_string(),
-            unigram_count: 0,
-            bigram_count: 0,
-            trigram_count: 0,
-            smoothing_method: "none".to_string(),
-        }
-    }
-}
-
 /// Lightweight container holding ln(probabilities) for 1/2/3-grams.
 ///
 /// Probabilities are stored as natural logarithms (ln). The model is generic
@@ -64,9 +38,6 @@ pub struct NGramModel {
 
     /// trigram: ln P(w3 | w1, w2) keyed by (w1, w2, w3)
     trigram: HashMap<(String, String, String), f64>,
-
-    /// Metadata for versioning and compatibility
-    metadata: NGramMetadata,
 }
 
 impl NGramModel {
@@ -76,7 +47,6 @@ impl NGramModel {
             unigram: HashMap::new(),
             bigram: HashMap::new(),
             trigram: HashMap::new(),
-            metadata: NGramMetadata::default(),
         }
     }
 
@@ -468,18 +438,11 @@ impl NGramModel {
 
     // --- Serialization helpers ---
 
-    /// Save the model to the given path using bincode with updated metadata.
+    /// Save the model to the given path using bincode.
     pub fn save_bincode<P: AsRef<Path>>(&self, path: P) -> anyhow::Result<()> {
-        // Clone and update metadata before saving
-        let mut model_to_save = self.clone();
-        model_to_save.metadata.unigram_count = self.unigram.len();
-        model_to_save.metadata.bigram_count = self.bigram.len();
-        model_to_save.metadata.trigram_count = self.trigram.len();
-        model_to_save.metadata.created_at = format!("{:?}", std::time::SystemTime::now());
-
         let file = File::create(path)?;
         let mut writer = BufWriter::new(file);
-        bincode::serialize_into(&mut writer, &model_to_save)?;
+        bincode::serialize_into(&mut writer, self)?;
         Ok(())
     }
 
@@ -489,28 +452,6 @@ impl NGramModel {
         let reader = BufReader::new(file);
         let model: Self = bincode::deserialize_from(reader)?;
         Ok(model)
-    }
-
-    /// Save metadata to a JSON file for inspection.
-    pub fn save_metadata_json<P: AsRef<Path>>(&self, path: P) -> anyhow::Result<()> {
-        let mut metadata = self.metadata.clone();
-        metadata.unigram_count = self.unigram.len();
-        metadata.bigram_count = self.bigram.len();
-        metadata.trigram_count = self.trigram.len();
-        metadata.created_at = format!("{:?}", std::time::SystemTime::now());
-
-        let json = serde_json::to_string_pretty(&metadata)?;
-        std::fs::write(path, json)?;
-        Ok(())
-    }
-
-    /// Get current metadata with updated counts.
-    pub fn get_metadata(&self) -> NGramMetadata {
-        let mut metadata = self.metadata.clone();
-        metadata.unigram_count = self.unigram.len();
-        metadata.bigram_count = self.bigram.len();
-        metadata.trigram_count = self.trigram.len();
-        metadata
     }
 }
 

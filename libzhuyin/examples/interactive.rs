@@ -2,68 +2,25 @@ use libchinese_core::{Candidate, Config, Lexicon, Model, NGramModel, UserDict, I
 use libzhuyin::{ZhuyinParser, Engine};
 use std::io::{self, BufRead};
 use std::path::Path;
-use std::fs::File;
-use std::io::Read;
 use clap::{Parser as ClapParser, Subcommand};
 
-fn build_demo_model() -> Model {
-    // Try to load runtime artifacts from `data/converted/zhuyin_traditional/` if they exist
+fn build_demo_engine() -> Engine {
+    // Try to load from data/converted/zhuyin_traditional using Engine::from_data_dir()
     let data_dir = Path::new("data/converted/zhuyin_traditional");
-    let fst_path = data_dir.join("lexicon.fst");
-    let bincode_path = data_dir.join("lexicon.bincode");
-
-    if fst_path.exists() && bincode_path.exists() {
-        match Lexicon::load_from_fst_bincode(&fst_path, &bincode_path) {
-            Ok(lx) => {
-                println!("loaded zhuyin lexicon from artifacts: '{}' + '{}'", fst_path.display(), bincode_path.display());
-                
-                // Load n-gram model from data/converted/zhuyin_traditional/ngram.bincode if present
-                let ng_path = data_dir.join("ngram.bincode");
-                let ng = if let Ok(mut f) = File::open(&ng_path) {
-                    let mut b = Vec::new();
-                    if f.read_to_end(&mut b).is_ok() {
-                        if let Ok(m) = bincode::deserialize::<NGramModel>(&b) {
-                            println!("loaded zhuyin ngram model from {}", ng_path.display());
-                            m
-                        } else {
-                            NGramModel::new()
-                        }
-                    } else {
-                        NGramModel::new()
-                    }
-                } else {
-                    NGramModel::new()
-                };
-
-                let home = std::env::var("HOME")
-                    .or_else(|_| std::env::var("USERPROFILE"))
-                    .unwrap_or_else(|_| ".".to_string());
-                let user_path = std::path::PathBuf::from(home)
-                    .join(".zhuyin")
-                    .join("userdict.redb");
-                let user = UserDict::new(&user_path).unwrap_or_else(|e| {
-                    eprintln!("warning: failed to create userdict at {:?}: {}", user_path, e);
-                    let temp_path = std::env::temp_dir().join(format!(
-                        "libzhuyin_userdict_{}.redb",
-                        std::process::id()
-                    ));
-                    UserDict::new(&temp_path).expect("failed to create temp userdict")
-                });
-                
-                // Load zhuyin interpolator if present, otherwise use empty one
-                let lambdas_fst = data_dir.join("lambdas.fst");
-                let lambdas_bincode = data_dir.join("lambdas.bincode");
-                let interp = Interpolator::load(&lambdas_fst, &lambdas_bincode)
-                    .unwrap_or_else(|_| Interpolator::new());
-
-                let cfg = Config::default();
-                return Model::new(lx, ng, user, cfg, interp);
+    
+    if data_dir.exists() {
+        match Engine::from_data_dir(data_dir) {
+            Ok(engine) => {
+                println!("loaded zhuyin engine from {}", data_dir.display());
+                return engine;
             }
-            Err(e) => eprintln!("warning: failed to load zhuyin lexicon: {}", e),
+            Err(e) => {
+                eprintln!("warning: failed to load engine from {:?}: {}", data_dir, e);
+            }
         }
     }
 
-    // Fallback: demo model with zhuyin entries
+    // Fallback: demo engine with minimal data
     let mut lx = Lexicon::new();
     // Add some basic zhuyin mappings (using bopomofo notation)
     lx.insert("ㄋㄧˇㄏㄠˇ", "你好");  // ni3 hao3 -> 你好
@@ -85,7 +42,13 @@ fn build_demo_model() -> Model {
     user.learn("你好");
 
     let cfg = Config::default();
-    Model::new(lx, ng, user, cfg, Interpolator::new())
+    let model = Model::new(lx, ng, user, cfg, Interpolator::new());
+    
+    let parser = ZhuyinParser::with_syllables(&[
+        "ㄋㄧˇ", "ㄏㄠˇ", "ㄏㄠˋ", "ㄓㄨㄥ", "ㄍㄨㄛˊ"
+    ]);
+    
+    Engine::new(model, parser)
 }
 
 fn print_candidate(key: &str, cand: &Candidate, idx: usize) {
@@ -94,11 +57,7 @@ fn print_candidate(key: &str, cand: &Candidate, idx: usize) {
 }
 
 fn run_repl() {
-    let model = build_demo_model();
-    let parser = ZhuyinParser::with_syllables(&[
-        "ㄋㄧˇ", "ㄏㄠˇ", "ㄏㄠˋ", "ㄓㄨㄥ", "ㄍㄨㄛˊ"
-    ]);
-    let engine = Engine::new(model, parser);
+    let engine = build_demo_engine();
     
     println!("libzhuyin demo CLI — type zhuyin/bopomofo input and press Enter");
     println!("Example: ㄋㄧˇㄏㄠˇ for 你好");
@@ -249,14 +208,10 @@ fn handle_test_command(mode: TestMode, input: &str) {
         input
     );
     
-    let model = build_demo_model();
-    let parser = ZhuyinParser::with_syllables(&[
-        "ㄋㄧˇ", "ㄏㄠˇ", "ㄏㄠˋ", "ㄓㄨㄥ", "ㄍㄨㄛˊ"
-    ]);
+    let engine = build_demo_engine();
     
     match mode {
         TestMode::Candidates => {
-            let engine = Engine::new(model, parser);
             let cands = engine.input(input);
             println!("📝 Generated {} candidates:", cands.len());
             for (i, c) in cands.iter().enumerate() {
@@ -265,13 +220,14 @@ fn handle_test_command(mode: TestMode, input: &str) {
         }
         TestMode::Segmentation => {
             println!("🔍 Zhuyin segmentation analysis:");
+            // Build a parser for segmentation testing
+            let parser = ZhuyinParser::new();
             let segs = parser.segment_top_k(input, 3, true);
             for (i, seg) in segs.iter().enumerate() {
                 println!("  {}. {:?}", i + 1, seg.iter().map(|s| &s.text).collect::<Vec<_>>());
             }
         }
         TestMode::Scoring => {
-            let engine = Engine::new(model, parser);
             println!("📊 Detailed zhuyin scoring analysis:");
             let cands = engine.input(input);
             for (i, c) in cands.iter().enumerate().take(3) {
