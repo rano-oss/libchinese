@@ -142,17 +142,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b05b61dc5112cbb17e4b6cd61790d9845d13888356391624cbe7e41efeac1e75"
 
 [[package]]
-name = "convert_tables"
+name = "convert_table"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "bincode",
- "clap",
  "fst",
- "redb",
- "regex",
+ "libchinese-core",
  "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -179,18 +176,6 @@ name = "fst"
 version = "0.4.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7ab85b9b05e3978cc9a9cf8fea7f01b494e1a09ed3037e16ba39edc7a29eb61a"
-
-[[package]]
-name = "gen_bigrams_from_tables"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bincode",
- "clap",
- "fst",
- "redb",
- "serde",
-]
 
 [[package]]
 name = "getrandom"
@@ -224,14 +209,6 @@ checksum = "4b0f83760fb341a774ed326568e19f5a863af4a952def8c39f9ab92fd95b88e5"
 dependencies = [
  "equivalent",
  "hashbrown",
-]
-
-[[package]]
-name = "inspect_redb"
-version = "0.1.0"
-dependencies = [
- "fst",
- "redb",
 ]
 
 [[package]]
@@ -499,16 +476,6 @@ version = "0.6.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bf41e0cfaf7226dca15e8197172c295a782857fcb97fad1808a166870dee75a3"
 dependencies = [
- "serde",
-]
-
-[[package]]
-name = "serialize_ngram"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bincode",
- "libchinese-core",
  "serde",
 ]
 
