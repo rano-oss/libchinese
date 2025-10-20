@@ -7,22 +7,23 @@ use std::io::Read;
 use clap::{Parser as ClapParser, Subcommand};
 
 fn build_demo_model() -> Model {
-    // Try to load runtime artifacts from `data/zhuyin/` if they exist
-    let data_dir = Path::new("../data/zhuyin");
-    let fst_path = data_dir.join("zhuyin.fst");
-    let redb_path = data_dir.join("zhuyin.redb");
+    // Try to load runtime artifacts from `data/converted/zhuyin_traditional/` if they exist
+    let data_dir = Path::new("data/converted/zhuyin_traditional");
+    let fst_path = data_dir.join("lexicon.fst");
+    let bincode_path = data_dir.join("lexicon.bincode");
 
-    if fst_path.exists() && redb_path.exists() {
-        match Lexicon::load_from_fst_redb(&fst_path, &redb_path) {
+    if fst_path.exists() && bincode_path.exists() {
+        match Lexicon::load_from_fst_bincode(&fst_path, &bincode_path) {
             Ok(lx) => {
-                println!("loaded zhuyin lexicon from artifacts: '{}' + '{}'", fst_path.display(), redb_path.display());
+                println!("loaded zhuyin lexicon from artifacts: '{}' + '{}'", fst_path.display(), bincode_path.display());
                 
-                // Load n-gram model from data/zhuyin/ngram.bincode if present
-                let ng = if let Ok(mut f) = File::open("data/zhuyin/ngram.bincode") {
+                // Load n-gram model from data/converted/zhuyin_traditional/ngram.bincode if present
+                let ng_path = data_dir.join("ngram.bincode");
+                let ng = if let Ok(mut f) = File::open(&ng_path) {
                     let mut b = Vec::new();
                     if f.read_to_end(&mut b).is_ok() {
                         if let Ok(m) = bincode::deserialize::<NGramModel>(&b) {
-                            println!("loaded zhuyin ngram model");
+                            println!("loaded zhuyin ngram model from {}", ng_path.display());
                             m
                         } else {
                             NGramModel::new()
@@ -50,9 +51,9 @@ fn build_demo_model() -> Model {
                 });
                 
                 // Load zhuyin interpolator if present, otherwise use empty one
-                let lambdas_fst = data_dir.join("zhuyin.lambdas.fst");
-                let lambdas_redb = data_dir.join("zhuyin.lambdas.redb");
-                let interp = Interpolator::load(&lambdas_fst, &lambdas_redb)
+                let lambdas_fst = data_dir.join("lambdas.fst");
+                let lambdas_bincode = data_dir.join("lambdas.bincode");
+                let interp = Interpolator::load(&lambdas_fst, &lambdas_bincode)
                     .unwrap_or_else(|_| Interpolator::new());
 
                 let cfg = Config::default();
@@ -198,7 +199,6 @@ enum TestMode {
 #[derive(clap::ValueEnum, Clone)]
 enum ConvertFormat {
     Fst,
-    Redb,
     Bincode,
     Toml,
 }
@@ -286,7 +286,6 @@ fn handle_convert_command(input: &Path, output: &Path, format: ConvertFormat) {
         input.display(),
         match format {
             ConvertFormat::Fst => "FST",
-            ConvertFormat::Redb => "redb",
             ConvertFormat::Bincode => "bincode", 
             ConvertFormat::Toml => "TOML",
         },
@@ -294,9 +293,9 @@ fn handle_convert_command(input: &Path, output: &Path, format: ConvertFormat) {
     );
     
     // Format conversion is not currently implemented.
-    // Data formats are fixed: FST+redb for lexicons, bincode for n-grams.
+    // Data formats are fixed: FST+bincode for lexicons, bincode for n-grams and lambdas.
     println!("ℹ️  Format conversion not implemented");
-    println!("   Models use fixed formats: FST+redb (lexicon), bincode (n-gram)");
+    println!("   Models use fixed formats: FST+bincode (lexicon, lambdas), bincode (n-gram)");
 }
 
 fn main() {

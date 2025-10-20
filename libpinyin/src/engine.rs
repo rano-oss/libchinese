@@ -60,19 +60,19 @@ impl Engine {
     /// Load an engine from a model directory containing runtime artifacts.
     ///
     /// Expected layout (data-dir):
-    ///  - pinyin.fst + pinyin.redb         (lexicon)
+    ///  - lexicon.fst + lexicon.bincode    (lexicon)
     ///  - ngram.bincode                    (serialized NGramModel)
-    ///  - pinyin.lambdas.fst + .redb       (interpolator)
-    ///  - userdict.redb                     (persistent user dictionary)
+    ///  - lambdas.fst + lambdas.bincode   (interpolator)
+    ///  - userdict.redb                    (persistent user dictionary)
     pub fn from_data_dir<P: AsRef<std::path::Path>>(data_dir: P) -> Result<Self, Box<dyn Error>> {
         let data_dir = data_dir.as_ref();
 
-        // Load lexicon from fst + redb (required)
-        let fst_path = data_dir.join("pinyin.fst");
-        let redb_path = data_dir.join("pinyin.redb");
+        // Load lexicon from fst + bincode (required)
+        let fst_path = data_dir.join("lexicon.fst");
+        let bincode_path = data_dir.join("lexicon.bincode");
 
-        let lex = Lexicon::load_from_fst_redb(&fst_path, &redb_path)
-            .map_err(|e| format!("failed to load lexicon from {:?} and {:?}: {}", fst_path, redb_path, e))?;
+        let lex = Lexicon::load_from_fst_bincode(&fst_path, &bincode_path)
+            .map_err(|e| format!("failed to load lexicon from {:?} and {:?}: {}", fst_path, bincode_path, e))?;
 
         // Load ngram model if present
         let ngram = {
@@ -115,10 +115,10 @@ impl Engine {
 
         // Load interpolator or create empty one
         let interp = {
-            let lf = data_dir.join("pinyin.lambdas.fst");
-            let lr = data_dir.join("pinyin.lambdas.redb");
-            if lf.exists() && lr.exists() {
-                match libchinese_core::Interpolator::load(&lf, &lr) {
+            let lf = data_dir.join("lambdas.fst");
+            let lb = data_dir.join("lambdas.bincode");
+            if lf.exists() && lb.exists() {
+                match libchinese_core::Interpolator::load(&lf, &lb) {
                     Ok(i) => i,
                     Err(e) => {
                         eprintln!("warning: failed to load interpolator: {}", e);

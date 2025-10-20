@@ -1,9 +1,8 @@
 use anyhow::Result;
 use fst::MapBuilder;
 use serde::{Deserialize, Serialize};
-use libchinese_core::NGramModel;
-use std::collections::BTreeMap;
-use std::collections::HashMap;
+use libchinese_core::{NGramModel, interpolation::Lambdas};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::{create_dir_all, File};
 use std::io::{BufRead, BufReader};
 use std::path::Path;
@@ -230,7 +229,168 @@ fn build_fst_and_bincode<P: AsRef<Path>>(table_paths: &[(&str, P)], out_prefix: 
     bincode::serialize_into(&mut nbf, &model)?;
 
     println!("Wrote {} entries, fst={} bincode={}", payloads.len(), fst_path.display(), bin_path.display());
+    
+    // Now compute and write interpolation lambdas using character-level n-grams from phrase text
+    estimate_lambdas_for_dataset(out_prefix, &payloads)?;
+    
     Ok(())
+}
+
+/// Estimate interpolation lambda weights for a dataset using deleted interpolation
+fn estimate_lambdas_for_dataset<P: AsRef<Path>>(dataset_dir: P, payloads: &[Vec<LexEntry>]) -> Result<()> {
+    let dataset_dir = dataset_dir.as_ref();
+
+    // Build character-level unigram, bigram and trigram counts from phrase texts
+    let mut unigram_counts: HashMap<String, u64> = HashMap::new();
+    let mut bigram_counts: HashMap<(String, String), u64> = HashMap::new();
+    let mut trigram_counts: HashMap<(String, String, String), u64> = HashMap::new();
+
+    for list in payloads.iter() {
+        for entry in list.iter() {
+            let text = &entry.utf8;
+            let chars: Vec<String> = text.chars().map(|c| c.to_string()).collect();
+            
+            // Count unigrams
+            for ch in chars.iter() {
+                *unigram_counts.entry(ch.clone()).or_default() += 1;
+            }
+            
+            // Count bigrams
+            for i in 0..chars.len().saturating_sub(1) {
+                *bigram_counts.entry((chars[i].clone(), chars[i + 1].clone())).or_default() += 1;
+            }
+            
+            // Count trigrams
+            for i in 0..chars.len().saturating_sub(2) {
+                *trigram_counts.entry((chars[i].clone(), chars[i + 1].clone(), chars[i + 2].clone())).or_default() += 1;
+            }
+        }
+    }
+
+    // Compute unique prefixes list (character-level prefixes from bigrams)
+    let prefixes: Vec<String> = {
+        let mut s = HashSet::new();
+        for ((w1, _), _) in bigram_counts.iter() {
+            s.insert(w1.clone());
+        }
+        let mut v: Vec<_> = s.into_iter().collect();
+        v.sort();
+        v
+    };
+
+    // Build FST for lambdas
+    let fst_path = dataset_dir.join("lambdas.fst");
+    let bincode_path = dataset_dir.join("lambdas.bincode");
+
+    let mut map_builder = MapBuilder::new(Vec::new())?;
+    for (i, key) in prefixes.iter().enumerate() {
+        map_builder.insert(key, i as u64)?;
+    }
+    let fst_bytes = map_builder.into_inner()?;
+    std::fs::write(&fst_path, &fst_bytes)?;
+
+    // Compute lambdas for each prefix
+    let mut b_vec: Vec<Lambdas> = Vec::with_capacity(prefixes.len());
+    for key in prefixes.iter() {
+        let (l1, l2, l3) = compute_lambda_for_prefix(
+            &bigram_counts,
+            &trigram_counts,
+            key,
+            &unigram_counts,
+        );
+        b_vec.push(Lambdas([l1, l2, l3]));
+    }
+    let bbytes = bincode::serialize(&b_vec)?;
+    std::fs::write(&bincode_path, &bbytes)?;
+
+    println!("Wrote lambdas: {} + {}", fst_path.display(), bincode_path.display());
+    Ok(())
+}
+
+/// Compute per-prefix lambda weights using 3-way deleted interpolation
+fn compute_lambda_for_prefix(
+    bigram_counts: &HashMap<(String, String), u64>,
+    trigram_counts: &HashMap<(String, String, String), u64>,
+    prefix: &str,
+    unigram_counts: &HashMap<String, u64>,
+) -> (f32, f32, f32) {
+    let total_uni: f64 = unigram_counts.values().map(|&v| v as f64).sum();
+    let total_bi: f64 = bigram_counts.values().map(|&v| v as f64).sum();
+    
+    if total_uni == 0.0 {
+        return (1.0, 0.0, 0.0);
+    }
+    
+    let mut l1_sum = 0.0;
+    let mut l2_sum = 0.0;
+    let mut l3_sum = 0.0;
+    
+    // For each trigram starting with prefix, compute which level predicts best
+    for ((w1, w2, w3), &c) in trigram_counts.iter() {
+        if w1 != prefix {
+            continue;
+        }
+        
+        let c_tri = c as f64;
+        let c_w1w2 = *bigram_counts.get(&(w1.clone(), w2.clone())).unwrap_or(&0) as f64;
+        let c_w2w3 = *bigram_counts.get(&(w2.clone(), w3.clone())).unwrap_or(&0) as f64;
+        let c_w2 = *unigram_counts.get(w2).unwrap_or(&0) as f64;
+        let c_w3 = *unigram_counts.get(w3).unwrap_or(&0) as f64;
+        
+        // Leave-one-out probabilities
+        let c_w1w2w3_minus = (c_tri - 1.0).max(0.0);
+        let p_tri = if c_w1w2 > 1.0 { c_w1w2w3_minus / (c_w1w2 - 1.0) } else { 0.0 };
+        let p_bi = if c_w2 > 0.0 { c_w2w3 / (c_w2 + total_bi * 0.001) } else { 0.0 };
+        let p_uni = if total_uni > 0.0 { c_w3 / total_uni } else { 0.0 };
+        
+        // Assign weight to best predictor
+        if p_tri >= p_bi && p_tri >= p_uni {
+            l3_sum += c_tri;
+        } else if p_bi >= p_uni {
+            l2_sum += c_tri;
+        } else {
+            l1_sum += c_tri;
+        }
+    }
+    
+    // Also consider bigrams (when no trigram context)
+    for ((w1, w2), &c) in bigram_counts.iter() {
+        if w1 != prefix {
+            continue;
+        }
+        
+        let c_bi = c as f64;
+        let c_w1 = *unigram_counts.get(w1).unwrap_or(&0) as f64;
+        let c_w2 = *unigram_counts.get(w2).unwrap_or(&0) as f64;
+        
+        let c_w1w2_minus = (c_bi - 1.0).max(0.0);
+        let p_bi = if c_w1 > 1.0 { c_w1w2_minus / (c_w1 - 1.0) } else { 0.0 };
+        let p_uni = if total_uni > 0.0 { c_w2 / total_uni } else { 0.0 };
+        
+        if p_bi >= p_uni {
+            l2_sum += c_bi * 0.5;
+        } else {
+            l1_sum += c_bi * 0.5;
+        }
+    }
+    
+    // Normalize
+    let total = l1_sum + l2_sum + l3_sum;
+    if total > 0.0 {
+        let mut l1 = (l1_sum / total) as f32;
+        let mut l2 = (l2_sum / total) as f32;
+        let mut l3 = (l3_sum / total) as f32;
+        
+        let min_weight = 0.01;
+        l1 = l1.max(min_weight);
+        l2 = l2.max(min_weight);
+        l3 = l3.max(min_weight);
+        
+        let sum = l1 + l2 + l3;
+        (l1 / sum, l2 / sum, l3 / sum)
+    } else {
+        (0.2, 0.5, 0.3)
+    }
 }
 
 fn tokenize_text(text: &str, mode: &str) -> Vec<String> {

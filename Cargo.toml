@@ -3,7 +3,6 @@ members = [
     "core",
     "libpinyin",
     "libzhuyin",
-    "tools/estimate_interpolation",
     "tools/convert_table",
     "tools/inspect_converted",
 ]

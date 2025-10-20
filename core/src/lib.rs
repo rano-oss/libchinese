@@ -4,7 +4,7 @@
 //! shared by language-specific crates (libpinyin, libzhuyin).
 //!
 //! This crate provides production-ready implementations using FST for lexicons,
-//! redb for user dictionaries, and bincode for serialization.
+//! bincode for serialization, and redb for user dictionaries only.
 //!
 //! Public API:
 //! - `Candidate` - Scored text candidate with metadata
@@ -17,8 +17,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap as AHashMap;
 use std::sync::Arc;
 use fst::Map;
-use fst::Streamer;
-use redb::{Database, TableDefinition};
 use std::fs::File;
 use std::io::Read;
 use bincode;
@@ -164,34 +162,26 @@ impl Default for LexiconMetadata {
     }
 }
 
-/// Lookups map a pinyin-sequence key (e.g. "nihao") to a list of Chinese
-/// phrases. This is intentionally basic; downstream crates can replace this
-/// with an `fst`-based implementation for space/time improvements.
-#[derive(Debug, Clone, Default)]
-pub struct Lexicon {
-    // Keyed by a "joined" pinyin sequence. In practice, language crates will
-    // choose a canonical joiner (like ""), or join on spaces.
-    map: AHashMap<String, Vec<String>>,
-    // Optional fst map and redb database for on-demand lookups. If present
-    // and the in-memory `map` doesn't contain the key, the Lexicon will use
-    // the fst -> redb `phrases` table convention to materialize candidates
-    // on demand without loading the whole lexicon into memory.
-    fst_map: Option<Map<Vec<u8>>>,
-    db: Option<Arc<Database>>,
-    // A small mapping from apostrophe-free pinyin keys to fst index. This
-    // speeds up lookups for inputs like "nihao" when the fst keys are
-    // stored as "ni'hao".
-    no_apos_map: Option<AHashMap<String, u64>>,
-    // Metadata for the lexicon format
-    metadata: LexiconMetadata,
+/// Lexicon entry matching convert_table output format
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct LexEntry {
+    pub utf8: String,
+    pub token: u32,
+    pub freq: u32,
 }
 
-// Local type used for deserializing phrase lists stored in the runtime
-// redb `phrases` table.
-#[derive(Deserialize)]
-struct PhraseEntry {
-    text: String,
-    freq: u64,
+/// Lookups map a pinyin-sequence key (e.g. "nihao") to a list of Chinese
+/// phrases. Uses FST for key indexing and bincode for payload storage.
+#[derive(Debug, Clone, Default)]
+pub struct Lexicon {
+    // In-memory map for dynamic entries
+    map: AHashMap<String, Vec<String>>,
+    // FST map for key -> index lookups
+    fst_map: Option<Map<Vec<u8>>>,
+    // Bincode-serialized payload vector (index -> Vec<LexEntry>)
+    payloads: Option<Vec<Vec<LexEntry>>>,
+    // Metadata for the lexicon format
+    metadata: LexiconMetadata,
 }
 
 impl Lexicon {
@@ -199,8 +189,7 @@ impl Lexicon {
         Self {
             map: AHashMap::new(),
             fst_map: None,
-            db: None,
-            no_apos_map: None,
+            payloads: None,
             metadata: LexiconMetadata::default(),
         }
     }
@@ -219,41 +208,12 @@ impl Lexicon {
             return v.clone();
         }
 
-        // Fst + redb on-demand lookup
-        if let Some(map) = &self.fst_map {
+        // FST + bincode lookup
+        if let (Some(map), Some(payloads)) = (&self.fst_map, &self.payloads) {
             if let Some(idx) = map.get(key) {
-                let id = idx as u64;
-                if let Some(db_arc) = &self.db {
-                    if let Ok(rt) = db_arc.begin_read() {
-                        let td: TableDefinition<u64, Vec<u8>> = TableDefinition::new("phrases");
-                        if let Ok(table) = rt.open_table(td) {
-                            if let Ok(Some(val)) = table.get(&id) {
-                                let bytes = val.value();
-                                if let Ok(list) = bincode::deserialize::<Vec<PhraseEntry>>(&bytes) {
-                                    return list.into_iter().map(|pe| pe.text).collect();
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Try apostrophe-free mapping if present
-        if let Some(map_no) = &self.no_apos_map {
-            if let Some(&id) = map_no.get(key) {
-                if let Some(db_arc) = &self.db {
-                    if let Ok(rt) = db_arc.begin_read() {
-                        let td: TableDefinition<u64, Vec<u8>> = TableDefinition::new("phrases");
-                        if let Ok(table) = rt.open_table(td) {
-                            if let Ok(Some(val)) = table.get(&id) {
-                                let bytes = val.value();
-                                if let Ok(list) = bincode::deserialize::<Vec<PhraseEntry>>(&bytes) {
-                                    return list.into_iter().map(|pe| pe.text).collect();
-                                }
-                            }
-                        }
-                    }
+                let index = idx as usize;
+                if let Some(entries) = payloads.get(index) {
+                    return entries.iter().map(|e| e.utf8.clone()).collect();
                 }
             }
         }
@@ -261,51 +221,34 @@ impl Lexicon {
         Vec::new()
     }
 
-    /// Load lexicon from runtime fst + redb artifacts without materializing
-    /// all phrases. Builds an apostrophe-free key map to support common
-    /// joined-pinyin input.
-    pub fn load_from_fst_redb<P: AsRef<std::path::Path>>(fst_path: P, redb_path: P) -> Result<Self, String> {
+    /// Load lexicon from FST + bincode artifacts.
+    /// 
+    /// - fst_path: lexicon.fst file mapping keys to indices
+    /// - bincode_path: lexicon.bincode file containing Vec<Vec<LexEntry>>
+    pub fn load_from_fst_bincode<P: AsRef<std::path::Path>>(fst_path: P, bincode_path: P) -> Result<Self, String> {
         let fst_path = fst_path.as_ref();
-        let redb_path = redb_path.as_ref();
+        let bincode_path = bincode_path.as_ref();
 
-        // load fst
-        let mut f = File::open(fst_path).map_err(|e| format!("open fst: {}", e))?;
+        // Load FST
+        let mut f = File::open(fst_path).map_err(|e| format!("open fst {}: {}", fst_path.display(), e))?;
         let mut buf = Vec::new();
         f.read_to_end(&mut buf).map_err(|e| format!("read fst: {}", e))?;
         let map = Map::new(buf).map_err(|e| format!("fst map: {}", e))?;
 
-        // open redb
-        let db = Database::open(redb_path).map_err(|e| format!("open redb: {}", e))?;
-        let arc_db = Arc::new(db);
-
-        // build no_apos_map by iterating keys that contain apostrophes
-        let mut stream = map.stream();
-        let mut no_apos = AHashMap::new();
-        while let Some((k, v)) = stream.next() {
-            if let Ok(s) = std::str::from_utf8(k) {
-                if s.contains('\t') {
-                    let parts: Vec<&str> = s.splitn(2, '\t').collect();
-                    if parts.len() == 2 {
-                        let key = parts[1];
-                        if key.contains('\'') {
-                            let key_no = key.replace('\'', "");
-                            // only insert if not present to preserve first mapping
-                            no_apos.entry(key_no).or_insert(v as u64);
-                        }
-                    }
-                }
-            }
-        }
+        // Load bincode payloads
+        let mut f = File::open(bincode_path).map_err(|e| format!("open bincode {}: {}", bincode_path.display(), e))?;
+        let mut buf = Vec::new();
+        f.read_to_end(&mut buf).map_err(|e| format!("read bincode: {}", e))?;
+        let payloads: Vec<Vec<LexEntry>> = bincode::deserialize(&buf)
+            .map_err(|e| format!("deserialize bincode: {}", e))?;
 
         Ok(Self {
             map: AHashMap::new(),
             fst_map: Some(map),
-            db: Some(arc_db),
-            no_apos_map: Some(no_apos),
+            payloads: Some(payloads),
             metadata: LexiconMetadata::default(),
         })
     }
-
 }
 
 // UserDict is implemented in `core::userdict` and exported above.

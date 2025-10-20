@@ -6,21 +6,22 @@ use std::io::Read;
 use clap::{Parser, Subcommand};
 
 fn build_model() -> Result<Model, Box<dyn std::error::Error>> {
-    // Load runtime artifacts from `data/` directory (required)
-    let data_dir = Path::new("../data");
-    let fst_path = data_dir.join("pinyin.fst");
-    let redb_path = data_dir.join("pinyin.redb");
+    // Load runtime artifacts from `data/converted/simplified/` directory (required)
+    let data_dir = Path::new("data/converted/simplified");
+    let fst_path = data_dir.join("lexicon.fst");
+    let bincode_path = data_dir.join("lexicon.bincode");
 
-    // Load lexicon from fst + redb (required)
-    let lx = Lexicon::load_from_fst_redb(&fst_path, &redb_path)?;
-    println!("✓ Loaded lexicon from '{}' + '{}'", fst_path.display(), redb_path.display());
+    // Load lexicon from fst + bincode (required)
+    let lx = Lexicon::load_from_fst_bincode(&fst_path, &bincode_path)?;
+    println!("✓ Loaded lexicon from '{}' + '{}'", fst_path.display(), bincode_path.display());
     
-    // Load ngram model from data/ngram.bincode if present
-    let ng = if let Ok(mut f) = File::open("data/ngram.bincode") {
+    // Load ngram model from data/converted/simplified/ngram.bincode if present
+    let ng_path = data_dir.join("ngram.bincode");
+    let ng = if let Ok(mut f) = File::open(&ng_path) {
         let mut b = Vec::new();
         if f.read_to_end(&mut b).is_ok() {
             if let Ok(m) = bincode::deserialize::<NGramModel>(&b) {
-                println!("✓ Loaded n-gram model from data/ngram.bincode");
+                println!("✓ Loaded n-gram model from {}", ng_path.display());
                 m
             } else {
                 eprintln!("⚠ Failed to deserialize ngram.bincode, using empty model");
@@ -50,12 +51,12 @@ fn build_model() -> Result<Model, Box<dyn std::error::Error>> {
     });
     
     // Load interpolator or create empty one
-    let lambdas_fst = Path::new("data").join("pinyin.lambdas.fst");
-    let lambdas_redb = Path::new("data").join("pinyin.lambdas.redb");
-    let interp = if lambdas_fst.exists() && lambdas_redb.exists() {
-        match Interpolator::load(&lambdas_fst, &lambdas_redb) {
+    let lambdas_fst = data_dir.join("lambdas.fst");
+    let lambdas_bincode = data_dir.join("lambdas.bincode");
+    let interp = if lambdas_fst.exists() && lambdas_bincode.exists() {
+        match Interpolator::load(&lambdas_fst, &lambdas_bincode) {
             Ok(i) => {
-                println!("✓ Loaded interpolator from '{}' + '{}'", lambdas_fst.display(), lambdas_redb.display());
+                println!("✓ Loaded interpolator from '{}' + '{}'", lambdas_fst.display(), lambdas_bincode.display());
                 i
             }
             Err(e) => {

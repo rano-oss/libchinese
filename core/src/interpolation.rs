@@ -1,40 +1,37 @@
 use anyhow::Result;
 use fst::Map;
-use redb::TableDefinition;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::Read;
-use std::sync::Arc;
 use std::path::Path;
 use bincode;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Lambdas(pub [f32; 3]);
 
-/// Interpolator holds an fst map (key -> index) and a redb database table
-/// storing bincode-serialized `Lambdas` values keyed by index.
+/// Interpolator holds an fst map (key -> index) and a bincode vector
+/// storing `Lambdas` values keyed by index.
 #[derive(Debug, Clone)]
 pub struct Interpolator {
     map: Map<Vec<u8>>,
-    db: Option<Arc<redb::Database>>,
-    // optional in-memory bincode-backed lambdas vector (index -> Lambdas)
-    lambdas_bincode: Option<Vec<Lambdas>>,
+    // in-memory bincode-backed lambdas vector (index -> Lambdas)
+    lambdas: Vec<Lambdas>,
 }
 
 impl Interpolator {
-    /// Create an empty interpolator (no lambda lookups will succeed)
+    /// Create an empty interpolator with default lambdas
     pub fn new() -> Self {
-        // Create empty FST map
         let map = Map::default();
-        // Create in-memory temporary database
-        let db = Arc::new(redb::Database::builder().create_with_backend(redb::backends::InMemoryBackend::new()).unwrap());
-        Self { map, db: Some(db), lambdas_bincode: None }
+        Self { map, lambdas: vec![Lambdas([0.33, 0.33, 0.34])] }
     }
 
-    /// Load from fst + redb pair. If fst_path doesn't exist, returns an error.
-    pub fn load<P: AsRef<Path>>(fst_path: P, redb_path: P) -> Result<Self> {
+    /// Load from fst + bincode pair.
+    /// 
+    /// - fst_path: lambdas.fst file mapping keys to indices
+    /// - bincode_path: lambdas.bincode file containing Vec<Lambdas>
+    pub fn load<P: AsRef<Path>>(fst_path: P, bincode_path: P) -> Result<Self> {
         let fst_path = fst_path.as_ref();
-        let redb_path = redb_path.as_ref();
+        let bincode_path = bincode_path.as_ref();
 
         let map = {
             let mut f = File::open(fst_path)?;
@@ -42,60 +39,21 @@ impl Interpolator {
             f.read_to_end(&mut buf)?;
             Map::new(buf)?
         };
-        // Prefer a sibling bincode file (same stem, .bincode extension) if present.
-        let bincode_path = redb_path.with_extension("bincode");
-        if bincode_path.exists() {
-            let mut f = File::open(&bincode_path)?;
+        
+        let lambdas = {
+            let mut f = File::open(bincode_path)?;
             let mut buf = Vec::new();
             f.read_to_end(&mut buf)?;
-            let vec: Vec<Lambdas> = bincode::deserialize(&buf)?;
-            Ok(Self { map, db: None, lambdas_bincode: Some(vec) })
-        } else {
-            let pstr = redb_path.to_string_lossy().to_string();
-            match redb::Database::open(redb_path) {
-                Ok(db) => Ok(Self { map, db: Some(Arc::new(db)), lambdas_bincode: None }),
-                Err(_) => Err(anyhow::anyhow!("Interpolator: failed to open redb '{}'", pstr)),
-            }
-        }
+            bincode::deserialize(&buf)?
+        };
+        
+        Ok(Self { map, lambdas })
     }
 
     /// Lookup lambdas for a key. Returns None if not found.
     pub fn lookup(&self, key: &str) -> Option<Lambdas> {
-        // consult fst + redb
-        let idx = self.map.get(key)? as u64;
-
-        // If we have an in-memory bincode vector, use it.
-        if let Some(ref vec) = self.lambdas_bincode {
-            let i = idx as usize;
-            return vec.get(i).cloned();
-        }
-        // Open a read transaction on the cached database
-        let db = match &self.db {
-            Some(d) => d,
-            None => { eprintln!("Interpolator: no backing database available"); return None; }
-        };
-        let read_txn = match db.begin_read() {
-            Ok(t) => t,
-            Err(e) => { eprintln!("Interpolator: begin_read failed: {}", e); return None; }
-        };
-
-        let k_table: TableDefinition<u64, Vec<u8>> = TableDefinition::new("lambdas");
-        let table = match read_txn.open_table(k_table) {
-            Ok(t) => t,
-            Err(e) => { eprintln!("Interpolator: open_table failed: {}", e); return None; }
-        };
-
-        match table.get(&idx) {
-            Ok(Some(val)) => {
-                let bytes = val.value();
-                match bincode::deserialize::<Lambdas>(&bytes) {
-                    Ok(l) => Some(l),
-                    Err(e) => { eprintln!("Interpolator: bincode deserialize error: {}", e); None },
-                }
-            }
-            Ok(None) => { eprintln!("Interpolator: table.get returned None for idx={}", idx); None },
-            Err(e) => { eprintln!("Interpolator: table.get error: {}", e); None },
-        }
+        let idx = self.map.get(key)? as usize;
+        self.lambdas.get(idx).cloned()
     }
 }
 
@@ -103,57 +61,42 @@ impl Interpolator {
 mod tests {
     use super::*;
     use std::fs::File;
+    use std::io::Write;
     use fst::MapBuilder;
-    use redb::Database as RedbDatabase;
 
     #[test]
-    fn disk_backed_lookup_returns_lambdas() {
+    fn bincode_backed_lookup_returns_lambdas() {
         // create temp file paths
-    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis();
-    let mut fst_path = std::env::temp_dir();
-    fst_path.push(format!("libchinese_test_interp_{}.fst", stamp));
-    let mut redb_path = std::env::temp_dir();
-    redb_path.push(format!("libchinese_test_interp_{}.redb", stamp));
+        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis();
+        let mut fst_path = std::env::temp_dir();
+        fst_path.push(format!("libchinese_test_interp_{}.fst", stamp));
+        let mut bincode_path = std::env::temp_dir();
+        bincode_path.push(format!("libchinese_test_interp_{}.bincode", stamp));
 
         // build fst mapping "k" -> 0
         let mut builder = MapBuilder::new(Vec::new()).expect("fst builder");
         builder.insert("k", 0u64).expect("insert");
         let fst_bytes = builder.into_inner().expect("into_inner");
         let mut f = File::create(&fst_path).expect("create fst");
-        std::io::Write::write_all(&mut f, &fst_bytes).expect("write fst");
+        f.write_all(&fst_bytes).expect("write fst");
 
-        // build redb with lambdas at index 0
-        let db = RedbDatabase::create(&redb_path).expect("create redb");
-        let k_table: TableDefinition<u64, Vec<u8>> = TableDefinition::new("lambdas");
-        let w = db.begin_write().expect("begin write");
-        {
-            let mut table = w.open_table(k_table).expect("open table");
-            let l = Lambdas([0.1, 0.9, 0.0]);
-            let ser = bincode::serialize(&l).expect("serialize");
-            table.insert(&0u64, &ser).expect("insert");
-        }
-        w.commit().expect("commit");
-    // drop the write database handle so we can re-open the DB for a direct read
-    drop(db);
+        // build bincode with lambdas at index 0
+        let lambdas_vec = vec![Lambdas([0.1, 0.9, 0.0])];
+        let ser = bincode::serialize(&lambdas_vec).expect("serialize");
+        let mut f = File::create(&bincode_path).expect("create bincode");
+        f.write_all(&ser).expect("write bincode");
 
-    // verify by opening and reading back directly
-    let db2 = RedbDatabase::open(&redb_path).expect("open redb");
-    let rt = db2.begin_read().expect("begin read");
-    let table2 = rt.open_table(k_table).expect("open table2");
-    let got_direct = table2.get(&0u64).expect("get direct");
-    assert!(got_direct.is_some(), "direct redb read missing");
-    // drop direct read handles so Interpolator can open the DB path itself
-    drop(table2);
-    drop(rt);
-
-        // drop db so Interpolator::load can open it
-        drop(db2);
-        let interp = Interpolator::load(&fst_path, &redb_path).expect("load");
+        // load and verify
+        let interp = Interpolator::load(&fst_path, &bincode_path).expect("load");
 
         let got = interp.lookup("k");
         assert!(got.is_some());
         let l = got.unwrap();
         assert!((l.0[0] - 0.1).abs() < 1e-6);
         assert!((l.0[1] - 0.9).abs() < 1e-6);
+        
+        // cleanup
+        let _ = std::fs::remove_file(&fst_path);
+        let _ = std::fs::remove_file(&bincode_path);
     }
 }
