@@ -6,22 +6,42 @@
 use std::collections::HashMap;
 
 use crate::parser::{ZhuyinParser, ZhuyinSyllable};
-use libchinese_core::{Candidate, Interpolator, Model};
+use libchinese_core::{Candidate, Model, FuzzyMap};
 
 /// Public engine for libzhuyin
 pub struct Engine {
     model: Model,
     parser: ZhuyinParser,
+    fuzzy: FuzzyMap,
     /// Maximum candidates to return
     limit: usize,
 }
 
 impl Engine {
-    /// Construct an Engine from a pre-built Model and ZhuyinParser
+    /// Construct an Engine from a pre-built Model and ZhuyinParser.
+    ///
+    /// Uses standard zhuyin fuzzy rules by default.
     pub fn new(model: Model, parser: ZhuyinParser) -> Self {
+        // Use standard zhuyin fuzzy rules from config
+        let rules = crate::standard_fuzzy_rules();
+        let fuzzy = FuzzyMap::from_rules(&rules);
+        
         Self {
             model,
             parser,
+            fuzzy,
+            limit: 8,
+        }
+    }
+    
+    /// Construct an Engine with custom fuzzy rules.
+    pub fn with_fuzzy_rules(model: Model, parser: ZhuyinParser, fuzzy_rules: Vec<String>) -> Self {
+        let fuzzy = FuzzyMap::from_rules(&fuzzy_rules);
+        
+        Self {
+            model,
+            parser,
+            fuzzy,
             limit: 8,
         }
     }
@@ -84,7 +104,7 @@ impl Engine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use libchinese_core::{Lexicon, NGramModel, UserDict, Config};
+    use libchinese_core::{Lexicon, NGramModel, UserDict, Config, Interpolator};
     
     #[test]
     fn engine_zhuyin_basic() {

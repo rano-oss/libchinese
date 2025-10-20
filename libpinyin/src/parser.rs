@@ -15,7 +15,7 @@
 // - Add comprehensive test vectors from upstream test suite
 
 use libchinese_core::TrieNode;
-use crate::fuzzy::FuzzyMap;
+use libchinese_core::FuzzyMap;
 
 /// A single matched syllable (a chunk of pinyin).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,9 +57,11 @@ pub struct Parser {
 impl Parser {
     /// Create an empty parser.
     pub fn new() -> Self {
+        // Use standard pinyin fuzzy rules
+        let rules = crate::standard_fuzzy_rules();
         Self {
             trie: TrieNode::new(),
-            fuzzy: FuzzyMap::with_standard_rules(),
+            fuzzy: FuzzyMap::from_rules(&rules),
         }
     }
 

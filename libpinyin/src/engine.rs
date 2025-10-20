@@ -9,8 +9,7 @@ use std::cell::RefCell;
 
 use crate::parser::Parser;
 use crate::parser::Syllable;
-use crate::fuzzy::FuzzyMap;
-use libchinese_core::{Candidate, Interpolator, Model, Lexicon, NGramModel, UserDict};
+use libchinese_core::{Candidate, Interpolator, Model, Lexicon, NGramModel, UserDict, FuzzyMap};
 
 /// Public engine for libpinyin.
 ///
@@ -40,11 +39,11 @@ pub struct Engine {
 impl Engine {
     /// Construct an Engine from a pre-built `Model` and a `Parser`.
     ///
-    /// If the model's config has no fuzzy rules, standard fuzzy rules are used by default.
+    /// Uses standard pinyin fuzzy rules by default.
     pub fn new(model: Model, parser: Parser) -> Self {
-        // Always use standard fuzzy rules which include all upstream rules
-        // (shengmu, yunmu, corrections, and composed syllables)
-        let fuzzy = FuzzyMap::with_standard_rules();
+        // Use standard pinyin fuzzy rules from config
+        let rules = crate::standard_fuzzy_rules();
+        let fuzzy = FuzzyMap::from_rules(&rules);
         
         Self {
             model,
