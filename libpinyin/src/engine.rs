@@ -134,10 +134,39 @@ impl Engine {
 
         let model = Model::new(lex, ngram, userdict, cfg, interp);
 
-        // Build a parser stub; for parity you may want to load upstream pinyin table.
-        let parser = Parser::with_syllables(&[
-            "a", "ai", "an", "ang", "ao", "ba", "bai", "ban", "bang", "bao",
-        ]);
+        // Load pinyin syllables from data/pinyin_syllables.txt
+        let parser = {
+            let syllables_path = std::path::Path::new("data/pinyin_syllables.txt");
+            if syllables_path.exists() {
+                match std::fs::read_to_string(syllables_path) {
+                    Ok(content) => {
+                        let syllables: Vec<&str> = content.lines()
+                            .map(|s| s.trim())
+                            .filter(|s| !s.is_empty())
+                            .collect();
+                        eprintln!("✓ Loaded {} pinyin syllables", syllables.len());
+                        Parser::with_syllables(&syllables)
+                    }
+                    Err(e) => {
+                        eprintln!("warning: failed to load pinyin_syllables.txt: {}", e);
+                        eprintln!("using fallback syllable list");
+                        Parser::with_syllables(&[
+                            "a", "ai", "an", "ang", "ao", 
+                            "ba", "bai", "ban", "bang", "bao",
+                            "ni", "hao", "wo", "shi", "zhong", "guo"
+                        ])
+                    }
+                }
+            } else {
+                eprintln!("warning: pinyin_syllables.txt not found at {:?}", syllables_path);
+                eprintln!("using fallback syllable list");
+                Parser::with_syllables(&[
+                    "a", "ai", "an", "ang", "ao",
+                    "ba", "bai", "ban", "bang", "bao",
+                    "ni", "hao", "wo", "shi", "zhong", "guo"
+                ])
+            }
+        };
 
         Ok(Self::new(model, parser))
     }
@@ -337,8 +366,15 @@ impl Engine {
     }
 
     /// Helper: convert a segmentation (Vec<Syllable>) into a canonical lookup key.
+    /// Convert a syllable segmentation to an FST lookup key.
+    /// 
+    /// Joins syllables with apostrophes to match the format in the lexicon FST.
+    /// For example: ["ni", "hao"] -> "ni'hao"
     fn segmentation_to_key(seg: &[Syllable]) -> String {
-        seg.iter().map(|s| s.text.as_str()).collect::<String>()
+        seg.iter()
+            .map(|s| s.text.as_str())
+            .collect::<Vec<&str>>()
+            .join("'")
     }
 }
 
