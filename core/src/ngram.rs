@@ -480,6 +480,9 @@ mod tests {
             unigram_weight: 0.3,
             bigram_weight: 0.6,
             trigram_weight: 0.1,
+            allow_incomplete: true,
+            correct_ue_ve: true,
+            correct_v_u: true,
         };
         let score = m.score_sequence(&tokens, &cfg);
 

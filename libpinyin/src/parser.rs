@@ -227,6 +227,43 @@ impl Parser {
                         break;
                     }
                     let substr: String = normalized[pos..pos + len].iter().collect();
+                    
+                    // Try pinyin corrections first (ue/ve, v/u) - these have lower penalty than fuzzy
+                    let corrections = self.apply_corrections(&substr);
+                    for corrected in corrections {
+                        if self.trie.contains_word(&corrected) && corrected != substr {
+                            let end = pos + len;
+                            if end <= n && !best_cost[end].is_infinite() {
+                                let seg_cost = self.calculate_segment_cost(&corrected, len, false) + 0.5;
+                                let cand_cost = seg_cost + best_cost[end];
+                                let cand_parsed = len + best_parsed[end];
+                                let cand_keys = 1 + best_num_keys[end];
+                                // Correction penalty is less than fuzzy (200 vs varies)
+                                let correction_penalty = 200;
+                                let cand_dist = correction_penalty + best_distance[end];
+
+                                if should_replace(
+                                    pos,
+                                    cand_cost,
+                                    cand_parsed,
+                                    cand_keys,
+                                    cand_dist,
+                                    &best_cost,
+                                    &best_parsed,
+                                    &best_num_keys,
+                                    &best_distance,
+                                ) {
+                                    best_cost[pos] = cand_cost;
+                                    best_parsed[pos] = cand_parsed;
+                                    best_num_keys[pos] = cand_keys;
+                                    best_distance[pos] = cand_dist;
+                                    best_choice[pos] = Some((end, corrected.clone(), true));
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Then try fuzzy alternatives
                     let alts = self.fuzzy.alternatives(&substr);
                     for (alt, penalty) in alts {
                         if self.trie.contains_word(&alt) && alt != substr {
@@ -273,6 +310,52 @@ impl Parser {
                                     best_distance[pos] = cand_dist;
                                     best_choice[pos] = Some((end, alt.clone(), true));
                                 }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Try incomplete syllable matching if enabled (for partial input like "n" → "ni")
+            // This should have higher penalty than complete matches but better than unknown fallback
+            if allow_fuzzy && best_choice[pos].is_none() {
+                for len in 1..=3 {  // Try incomplete syllables up to 3 chars
+                    if pos + len > n {
+                        break;
+                    }
+                    let incomplete: String = normalized[pos..pos + len].iter().collect();
+                    
+                    // Find any syllable in the trie that starts with this prefix
+                    // We use the first completion as a representative match
+                    if let Some(completion) = self.find_syllable_completion(&incomplete) {
+                        let end = pos + len;
+                        if !best_cost[end].is_infinite() {
+                            // Incomplete match gets higher penalty than fuzzy but lower than unknown
+                            let seg_cost = self.calculate_segment_cost(&completion, len, false) + 2.0;
+                            let cand_cost = seg_cost + best_cost[end];
+                            let cand_parsed = len + best_parsed[end];
+                            let cand_keys = 1 + best_num_keys[end];
+                            // Incomplete penalty is less severe than unknown but more than fuzzy
+                            let incomplete_penalty = 500;
+                            let cand_dist = incomplete_penalty + best_distance[end];
+
+                            if should_replace(
+                                pos,
+                                cand_cost,
+                                cand_parsed,
+                                cand_keys,
+                                cand_dist,
+                                &best_cost,
+                                &best_parsed,
+                                &best_num_keys,
+                                &best_distance,
+                            ) {
+                                best_cost[pos] = cand_cost;
+                                best_parsed[pos] = cand_parsed;
+                                best_num_keys[pos] = cand_keys;
+                                best_distance[pos] = cand_dist;
+                                // Mark as fuzzy since it's an incomplete match
+                                best_choice[pos] = Some((end, incomplete.clone(), true));
                             }
                         }
                     }
@@ -365,6 +448,54 @@ impl Parser {
         let fuzzy_penalty = if is_fuzzy { 0.8 } else { 0.0 };
         
         base_cost + length_bonus + content_adjustment + fuzzy_penalty
+    }
+
+    /// Find a syllable completion for an incomplete prefix.
+    ///
+    /// For example, "n" might complete to "ni", "nh" might complete to "nihao".
+    /// Returns the first completion found, or None if no completions exist.
+    pub fn find_syllable_completion(&self, prefix: &str) -> Option<String> {
+        // Walk the trie to find any syllable starting with this prefix
+        self.trie.walk_prefixes(&prefix.chars().collect::<Vec<_>>(), 0)
+            .iter()
+            .find_map(|(_, matched)| {
+                if matched.starts_with(prefix) && matched.len() > prefix.len() {
+                    Some(matched.clone())
+                } else {
+                    None
+                }
+            })
+    }
+
+    /// Apply pinyin corrections (ue/ve, v/u) to a string.
+    ///
+    /// Returns corrected alternatives if applicable.
+    pub fn apply_corrections(&self, s: &str) -> Vec<String> {
+        let mut results = Vec::new();
+        
+        // Correction 1: ue ↔ ve (e.g., "nue" ↔ "nve", "lue" ↔ "lve")
+        if s.contains("ue") {
+            results.push(s.replace("ue", "ve"));
+        }
+        if s.contains("ve") {
+            results.push(s.replace("ve", "ue"));
+        }
+        
+        // Correction 2: v ↔ u in certain contexts (e.g., "nv" ↔ "nu", "lv" ↔ "lu")
+        // This is context-sensitive: only after n, l
+        for &initial in &["n", "l"] {
+            let vu_pattern = format!("{}u", initial);
+            let vv_pattern = format!("{}v", initial);
+            
+            if s.contains(&vu_pattern) {
+                results.push(s.replace(&vu_pattern, &vv_pattern));
+            }
+            if s.contains(&vv_pattern) {
+                results.push(s.replace(&vv_pattern, &vu_pattern));
+            }
+        }
+        
+        results
     }
 
     /// Return top-K segmentation alternatives (beam search).

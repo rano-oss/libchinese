@@ -10,7 +10,9 @@
 // persistence layer is out of scope for this in-memory parity test; we port
 // the core SingleGram behaviors that are required by lookup/scoring logic.
 
-use libchinese_core::SingleGram;
+// SingleGram is test-only, so we include it as a module here
+mod single_gram;
+use single_gram::SingleGram;
 
 #[test]
 fn ported_singlegram_basic_inserts_and_get() {

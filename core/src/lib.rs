@@ -66,6 +66,14 @@ pub struct Config {
     pub unigram_weight: f32,
     pub bigram_weight: f32,
     pub trigram_weight: f32,
+    
+    /// Parser options (bitflags-style, similar to libpinyin)
+    /// Allow incomplete syllables (e.g., "n" → matches initials)
+    pub allow_incomplete: bool,
+    /// Correct common ue/ve confusion (e.g., "nue" ↔ "nve")
+    pub correct_ue_ve: bool,
+    /// Correct v/u confusion (e.g., "nv" ↔ "nu")
+    pub correct_v_u: bool,
 }
 
 impl Default for Config {
@@ -88,6 +96,10 @@ impl Default for Config {
             ],
             unigram_weight: 0.6,
             bigram_weight: 0.3,
+            // Parser options
+            allow_incomplete: true,  // Enable by default for better UX
+            correct_ue_ve: true,     // Common typing mistakes
+            correct_v_u: true,       // Common typing mistakes
             trigram_weight: 0.1,
         }
     }
@@ -127,14 +139,6 @@ pub mod utils {
         s.nfc().collect::<String>().trim().to_string()
     }
 }
-
-/// SingleGram container and helpers (in-memory test-oriented implementation).
-///
-/// Implemented in `core::single_gram`. This module mirrors upstream SingleGram
-/// semantics used by the lookup and training code and is exported for use by
-/// language crates and tests.
-pub mod single_gram;
-pub use single_gram::SingleGram;
 
 pub mod interpolation;
 pub use interpolation::{Interpolator, Lambdas};
