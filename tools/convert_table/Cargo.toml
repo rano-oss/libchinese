@@ -1,0 +1,14 @@
+[package]
+name = "convert_table"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+fst = "0.4"
+bincode = "1.3"
+serde = { version = "1.0", features = ["derive"] }
+anyhow = "1.0"
+libchinese-core = { path = "../../core" }
+
+[profile.dev]
+opt-level = 1
