@@ -14,11 +14,11 @@ use libpinyin::parser::Parser;
 /// lower-ranked phrase until it overtakes the previously higher-ranked item.
 #[test]
 fn userdict_commit_changes_ranking_end_to_end() {
-    // Build lexicon with two competing phrases for the key "nihao".
+    // Build lexicon with two competing phrases for the key "ni'hao".
     let mut lex = Lexicon::new();
-    // Use the two-arg insert (key, phrase) used across parity tests.
-    lex.insert("nihao", "你好");
-    lex.insert("nihao", "你号");
+    // Use apostrophe-separated keys after segmentation fix
+    lex.insert("ni'hao", "你好");
+    lex.insert("ni'hao", "你号");
 
     // Build an n-gram model that strongly favors "你号" initially.
     // Tokens are characters; we assign ln-probabilities (higher = less negative).
@@ -36,14 +36,12 @@ fn userdict_commit_changes_ranking_end_to_end() {
     let user = UserDict::new(&temp_path).expect("create test userdict");
 
     // Config with default interpolation weights (not critical for this test).
-    let cfg = Config::default();
-        let model = Model::new(lex, ng, user, cfg, Interpolator::empty_for_test());
-
-    // Create parser seeded with expected syllables.
-    let parser = Parser::with_syllables(&["ni", "hao"]);
+    let cfg = libpinyin::PinyinConfig::default().into_base();
+    let model = Model::new(lex, ng, user, cfg, Interpolator::empty_for_test());
 
     // Engine doesn't need to be mutable - commit() takes &self
-    let engine = Engine::new(model, parser);
+    // Parser is now created internally with PINYIN_SYLLABLES
+    let engine = Engine::new(model);
 
     // Initial query: expect "你号" to be top due to ngram advantages.
     let cands_before = engine.input("nihao");
@@ -98,8 +96,8 @@ fn model_candidates_for_key_respects_userdict_boost() {
         user.learn("你好");
     }
 
-    let cfg = Config::default();
-        let model = Model::new(lex, ng, user, cfg, Interpolator::empty_for_test());
+    let cfg = libpinyin::PinyinConfig::default().into_base();
+    let model = Model::new(lex, ng, user, cfg, Interpolator::empty_for_test());
 
     // Directly ask the model for candidates for the key and verify ordering.
     let candidates = model.candidates_for_key("nihao", 10);

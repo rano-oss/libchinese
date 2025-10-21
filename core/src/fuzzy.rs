@@ -1,18 +1,4 @@
-//! Fuzzy matching utilities for Chinese input methods
-//!
-//! This module implements a comprehensive fuzzy matching system compatible with
-//! upstream libpinyin's fuzzy matching capabilities.
-//!
-//! Responsibilities:
-//! - Parse fuzzy rules from configuration (string pairs like `a=b`).
-//! - Provide alternatives for a given syllable/token including the original.
-//! - Support per-rule penalties for fine-grained scoring control.
-//! - Generic implementation usable for both Pinyin and Zhuyin/Bopomofo.
-//!
-//! Fuzzy Rule Examples:
-//! - Pinyin initials: zh/z, ch/c, sh/s, n/l, f/h, r/l, k/g
-//! - Pinyin finals: an/ang, en/eng, in/ing, ian/iang
-//! - Zhuyin keyboard layouts: ㄓ/ㄐ (HSU), ㄔ/ㄑ (ETEN26), etc.
+//! Fuzzy matching for phonetic similarity (pinyin/zhuyin).
 use std::collections::HashMap;
 
 /// A single fuzzy rule with penalty.

@@ -7,7 +7,7 @@ use clap::{Parser, Subcommand};
 
 fn build_model() -> Result<Model, Box<dyn std::error::Error>> {
     // Load runtime artifacts from `data/converted/simplified/` directory (required)
-    let data_dir = Path::new("data/converted/simplified");
+    let data_dir = Path::new("..\\data\\converted\\simplified");
     let fst_path = data_dir.join("lexicon.fst");
     let bincode_path = data_dir.join("lexicon.bincode");
 
@@ -58,7 +58,7 @@ fn build_model() -> Result<Model, Box<dyn std::error::Error>> {
         Interpolator::empty_for_test()
     });
 
-    let cfg = Config::default();
+    let cfg = libpinyin::PinyinConfig::default().into_base();
     Ok(Model::new(lx, ng, user, cfg, interp))
 }
 
@@ -71,10 +71,7 @@ fn print_candidate(key: &str, cand: &Candidate, idx: usize) {
 
 fn run_repl() {
     let model = build_model().expect("Failed to load model. Ensure data files exist in data/ directory.");
-    let parser = libpinyin::parser::Parser::with_syllables(&[
-        "ni", "hao", "zhong", "guo", "wo", "ai", "ni", "men"  
-    ]);
-    let engine = libpinyin::Engine::new(model, parser);
+    let engine = libpinyin::Engine::new(model);
     
     println!("libpinyin demo CLI — type pinyin input (e.g. 'nihao' or 'zhongguo') and press Enter");
     println!("Ctrl-D to exit.");
@@ -287,13 +284,9 @@ fn handle_test_command(mode: TestMode, input: &str, output: Option<&Path>, count
     );
     
     let model = build_model().expect("Failed to load model. Ensure data files exist in data/ directory.");
-    let parser = libpinyin::parser::Parser::with_syllables(&[
-        "ni", "hao", "zhong", "guo", "wo", "ai", "ni", "men"
-    ]);
-    
     match mode {
         TestMode::Candidates => {
-            let engine = libpinyin::Engine::new(model, parser);
+            let engine = libpinyin::Engine::new(model);
             let cands = engine.input(input);
             println!("📝 Generated {} candidates (showing top {}):", cands.len(), count.min(cands.len()));
             for (i, c) in cands.iter().enumerate().take(count) {
@@ -310,6 +303,8 @@ fn handle_test_command(mode: TestMode, input: &str, output: Option<&Path>, count
         }
         TestMode::Segmentation => {
             println!("🔍 Segmentation analysis:");
+            // Create a parser for testing segmentation
+            let parser = libpinyin::parser::Parser::with_syllables(libpinyin::PINYIN_SYLLABLES);
             let segs = parser.segment_top_k(input, count.min(10), true);
             for (i, seg) in segs.iter().enumerate().take(count) {
                 if verbose {
@@ -321,7 +316,7 @@ fn handle_test_command(mode: TestMode, input: &str, output: Option<&Path>, count
             }
         }
         TestMode::Scoring => {
-            let engine = libpinyin::Engine::new(model, parser);
+            let engine = libpinyin::Engine::new(model);
             println!("📊 Detailed scoring analysis:");
             let cands = engine.input(input);
             for (i, c) in cands.iter().enumerate().take(count.min(5)) {
@@ -375,10 +370,7 @@ fn handle_batch_test(file_path: &str, output: Option<&Path>, count: usize, verbo
     
     println!("📁 Processing batch test file: {}", file_path);
     let model = build_model().expect("Failed to load model. Ensure data files exist in data/ directory.");
-    let parser = libpinyin::parser::Parser::with_syllables(&[
-        "ni", "hao", "zhong", "guo", "wo", "ai", "ni", "men"
-    ]);
-    let engine = libpinyin::Engine::new(model, parser);
+    let engine = libpinyin::Engine::new(model);
     
     let reader = BufReader::new(file);
     let mut total_tests = 0;
@@ -444,10 +436,7 @@ fn handle_interactive_test() {
     println!("Type pinyin input and press Enter. Type 'quit' to exit.");
     
     let model = build_model().expect("Failed to load model. Ensure data files exist in data/ directory.");
-    let parser = libpinyin::parser::Parser::with_syllables(&[
-        "ni", "hao", "zhong", "guo", "wo", "ai", "ni", "men"
-    ]);
-    let engine = libpinyin::Engine::new(model, parser);
+    let engine = libpinyin::Engine::new(model);
     
     loop {
         print!("pinyin> ");
@@ -509,10 +498,7 @@ fn handle_benchmark_command(input: &Path, iterations: usize, warmup: usize) {
     println!("📊 Loaded {} test cases", test_cases.len());
     
     let model = build_model().expect("Failed to load model. Ensure data files exist in data/ directory.");
-    let parser = libpinyin::parser::Parser::with_syllables(&[
-        "ni", "hao", "zhong", "guo", "wo", "ai", "ni", "men"
-    ]);
-    let engine = libpinyin::Engine::new(model, parser);
+    let engine = libpinyin::Engine::new(model);
     
     // Warmup
     println!("🔥 Warming up...");
@@ -590,11 +576,8 @@ fn handle_verify_command(input: &Path, _reference: Option<&Path>, output: Option
     println!("📊 Loaded {} test cases", test_cases.len());
     
     let model = build_model().expect("Failed to load model. Ensure data files exist in data/ directory.");
-    let parser = libpinyin::parser::Parser::with_syllables(&[
-        "ni", "hao", "zhong", "guo", "wo", "ai", "ni", "men"
-    ]);
-    let engine = libpinyin::Engine::new(model, parser);
-    
+    let engine = libpinyin::Engine::new(model);
+
     let mut results = Vec::new();
     let mut total_matches = 0;
     let mut total_score_diff = 0.0;
@@ -780,10 +763,7 @@ fn handle_perf_command(input: &Path, show_cache: bool, latency: bool) {
     println!("📊 Loaded {} test cases", test_cases.len());
     
     let model = build_model().expect("Failed to load model. Ensure data files exist in data/ directory.");
-    let parser = libpinyin::parser::Parser::with_syllables(&[
-        "ni", "hao", "zhong", "guo", "wo", "ai", "ni", "men"
-    ]);
-    let engine = libpinyin::Engine::new(model, parser);
+    let engine = libpinyin::Engine::new(model);
     
     let mut latencies = Vec::new();
     let mut total_candidates = 0;

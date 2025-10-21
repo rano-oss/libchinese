@@ -22,13 +22,15 @@
 //! ```
 
 // Re-export the language-specific modules.
+pub mod config;
 pub mod parser;
 pub mod engine;
 pub mod double_pinyin;
 pub mod wade_giles;
 
 // Convenience re-exports for common types used by callers.
-pub use engine::Engine;
+pub use config::PinyinConfig;
+pub use engine::{Engine, PINYIN_SYLLABLES};
 pub use parser::{Parser, Syllable};
 pub use double_pinyin::{DoublePinyinScheme, DoublePinyinSchemeData, get_scheme_data};
 

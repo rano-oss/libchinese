@@ -2,11 +2,13 @@
 //!
 //! Zhuyin/Bopomofo input method engine built on libchinese-core.
 
+pub mod config;
 pub mod parser;
 pub mod engine;
 
+pub use config::ZhuyinConfig;
 pub use parser::ZhuyinParser;
-pub use engine::Engine;
+pub use engine::{Engine, ZHUYIN_SYLLABLES};
 
 /// Configuration for standard zhuyin/bopomofo fuzzy matching rules.
 ///

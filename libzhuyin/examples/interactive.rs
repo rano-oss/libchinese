@@ -41,14 +41,11 @@ fn build_demo_engine() -> Engine {
     let user = UserDict::new(&temp_path).expect("create fallback userdict");
     user.learn("你好");
 
-    let cfg = Config::default();
+    let cfg = libzhuyin::ZhuyinConfig::default().into_base();
     let model = Model::new(lx, ng, user, cfg, Interpolator::empty_for_test());
     
-    let parser = ZhuyinParser::with_syllables(&[
-        "ㄋㄧˇ", "ㄏㄠˇ", "ㄏㄠˋ", "ㄓㄨㄥ", "ㄍㄨㄛˊ"
-    ]);
-    
-    Engine::new(model, parser)
+    // Parser is created internally using ZHUYIN_SYLLABLES
+    Engine::new(model)
 }
 
 fn print_candidate(key: &str, cand: &Candidate, idx: usize) {
@@ -221,7 +218,7 @@ fn handle_test_command(mode: TestMode, input: &str) {
         TestMode::Segmentation => {
             println!("🔍 Zhuyin segmentation analysis:");
             // Build a parser for segmentation testing
-            let parser = ZhuyinParser::new();
+            let parser = ZhuyinParser::with_syllables(libzhuyin::ZHUYIN_SYLLABLES);
             let segs = parser.segment_top_k(input, 3, true);
             for (i, seg) in segs.iter().enumerate() {
                 println!("  {}. {:?}", i + 1, seg.iter().map(|s| &s.text).collect::<Vec<_>>());

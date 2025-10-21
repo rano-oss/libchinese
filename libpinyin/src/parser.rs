@@ -767,8 +767,10 @@ impl Parser {
         let mut beam: Vec<State> = vec![start];
         let mut completed: Vec<State> = Vec::new();
 
-        // beam width: allow some slack beyond k to keep diverse hypotheses
-        let beam_width = std::cmp::max(8, k.saturating_mul(4));
+        // beam width: allow more slack for longer inputs to avoid premature pruning
+        // Scale with input length to handle phrases like "woshinuoweiren" (7 syllables)
+        let base_width = std::cmp::max(16, k.saturating_mul(8));
+        let beam_width = base_width + (n / 4); // Add extra width for longer inputs
 
         while !beam.is_empty() {
             let mut next_beam: Vec<State> = Vec::new();

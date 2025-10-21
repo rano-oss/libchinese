@@ -29,14 +29,11 @@ fn enhanced_fuzzy_matching_comprehensive_rules() {
         "test_userdict_{}.redb", std::process::id()
     ));
     let user = UserDict::new(&temp_path).expect("create test userdict");
-    let cfg = Config::default(); // Now includes comprehensive fuzzy rules
+    let cfg = libpinyin::PinyinConfig::default().into_base(); // Now includes comprehensive fuzzy rules
     let model = Model::new(lex, ng, user, cfg, Interpolator::empty_for_test());
 
-    let parser = Parser::with_syllables(&[
-        "zi", "zhi", "si", "shi", "ci", "chi", 
-        "lan", "nan", "fan", "fang"
-    ]);
-    let engine = Engine::new(model, parser);
+    // Parser is now created internally with PINYIN_SYLLABLES
+    let engine = Engine::new(model);
 
     // Test z/zh confusion - input "zi" should find both "字" and "知" 
     let candidates = engine.input("zi");
@@ -84,7 +81,7 @@ fn enhanced_ngram_scoring_with_backoff() {
         "test_userdict_ngram_{}.redb", std::process::id()
     ));
     let user = UserDict::new(&temp_path).expect("create test userdict");
-    let cfg = Config::default();
+    let cfg = libpinyin::PinyinConfig::default().into_base();
     let model = Model::new(lex, ng, user, cfg, Interpolator::empty_for_test());
 
     // Test that the enhanced scoring correctly applies backoff smoothing

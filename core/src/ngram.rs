@@ -1,22 +1,4 @@
-//! N-gram model for libchinese-core.
-//!
-//! Responsibilities:
-//! - Store unigram / bigram / trigram log-probabilities.
-//! - Provide scoring helpers (interpolated log-prob scoring).
-//! - Provide simple training helper to convert counts -> log-probs.
-//! - Provide (basic) serialization helpers for bincode-based model IO.
-//! - Manage interpolation lambdas for per-key adaptive scoring.
-//!
-//! Reference upstream files for behavior and algorithms:
-//! - libpinyin: `src/storage/ngram.cpp`, `utils/training/*`
-//!
-//! Notes:
-//! - This is an intentionally simple and clear implementation to serve as a
-//!   correctness-first reference. It can be optimized (use `ahash`, packed
-//!   binary formats, memory-mapped data structures, or more advanced smoothing)
-//!   in later phases.
-
-use anyhow::Result;
+//! N-gram statistical language model with interpolation support.
 use fst::Map;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -39,10 +21,7 @@ pub struct Interpolator {
 
 impl Interpolator {
     /// Load from fst + bincode pair.
-    /// 
-    /// - fst_path: lambdas.fst file mapping keys to indices
-    /// - bincode_path: lambdas.bincode file containing Vec<Lambdas>
-    pub fn load<P: AsRef<Path>>(fst_path: P, bincode_path: P) -> Result<Self> {
+    pub fn load<P: AsRef<Path>>(fst_path: P, bincode_path: P) -> Result<Self, Box<dyn std::error::Error>> {
         let fst_path = fst_path.as_ref();
         let bincode_path = bincode_path.as_ref();
 
@@ -498,7 +477,7 @@ impl NGramModel {
     // --- Serialization helpers ---
 
     /// Save the model to the given path using bincode.
-    pub fn save_bincode<P: AsRef<Path>>(&self, path: P) -> anyhow::Result<()> {
+    pub fn save_bincode<P: AsRef<Path>>(&self, path: P) -> Result<(), Box<dyn std::error::Error>> {
         let file = File::create(path)?;
         let mut writer = BufWriter::new(file);
         bincode::serialize_into(&mut writer, self)?;
@@ -506,7 +485,7 @@ impl NGramModel {
     }
 
     /// Load the model from bincode file.
-    pub fn load_bincode<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
+    pub fn load_bincode<P: AsRef<Path>>(path: P) -> Result<Self, Box<dyn std::error::Error>> {
         let file = File::open(path)?;
         let reader = BufReader::new(file);
         let model: Self = bincode::deserialize_from(reader)?;
@@ -529,41 +508,28 @@ mod tests {
 
         // bigram for "你 好"
     m.insert_bigram("你", "好", -0.2_f64);
-        // trigram example (not used in 2-token sequence)
+    // trigram example (not used in 2-token sequence)
     m.insert_trigram("x", "y", "z", -0.05_f64);
 
-        let tokens = vec!["你".to_string(), "好".to_string()];
-        // use weights that favor bigram
-        let cfg = crate::Config {
-            fuzzy: vec![],
-            unigram_weight: 0.3,
-            bigram_weight: 0.6,
-            trigram_weight: 0.1,
-            allow_incomplete: true,
-            correct_ue_ve: true,
-            correct_v_u: true,
-            correct_uen_un: true,
-            correct_gn_ng: true,
-            correct_mg_ng: true,
-            correct_iou_iu: true,
-            zhuyin_incomplete: true,
-            zhuyin_correct_shuffle: true,
-            zhuyin_correct_hsu: true,
-            zhuyin_correct_eten26: true,
-            double_pinyin_scheme: None,
-            sort_by_phrase_length: false,
-            sort_by_pinyin_length: false,
-            sort_without_longer_candidate: false,
-            max_cache_size: 1000,
-        };
-        let score = m.score_sequence(&tokens, &cfg);
+    let tokens = vec!["你".to_string(), "好".to_string()];
+    // use weights that favor bigram
+    let cfg = crate::Config {
+        fuzzy: vec![],
+        unigram_weight: 0.3,
+        bigram_weight: 0.6,
+        trigram_weight: 0.1,
+        sort_by_phrase_length: false,
+        sort_without_longer_candidate: false,
+        max_cache_size: 1000,
+    };
+    let score = m.score_sequence(&tokens, &cfg);
 
-        // compute expected: for token 0:
-        // u0 = lnP(你) = -1.0, b0 = u0, t0 = b0 => contribution = 0.3*(-1.0)+0.6*(-1.0)+0.1*(-1.0) = -1.0
-        // token1:
-        // u1 = -1.2, b1 = lnP(好|你) = -0.2, t1 = b1
-        // contribution = 0.3*(-1.2) + 0.6*(-0.2) + 0.1*(-0.2) = -0.36 -0.12 -0.02 = -0.5
-        // total expected = -1.0 + -0.5 = -1.5
+    // compute expected: for token 0:
+    // u0 = lnP(你) = -1.0, b0 = u0, t0 = b0 => contribution = 0.3*(-1.0)+0.6*(-1.0)+0.1*(-1.0) = -1.0
+    // token1:
+    // u1 = -1.2, b1 = lnP(好|你) = -0.2, t1 = b1
+    // contribution = 0.3*(-1.2) + 0.6*(-0.2) + 0.1*(-0.2) = -0.36 -0.12 -0.02 = -0.5
+    // total expected = -1.0 + -0.5 = -1.5
         assert!((score - (-1.5)).abs() < 1e-4);
     }
 

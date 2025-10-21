@@ -52,141 +52,46 @@ impl Candidate {
     }
 }
 
-/// Configuration for fuzzy matching and n-gram weights.
-///
-/// This is designed to be deserialized from TOML via `serde`.
+/// Generic configuration for IME core functionality.
+/// 
+/// This config contains only language-agnostic fields. Language-specific options
+/// (pinyin corrections, zhuyin keyboard layouts, etc.) belong in `PinyinConfig`
+/// or `ZhuyinConfig` in their respective crates.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Config {
-    /// Fuzzy equivalence rules represented as pairs like "zh=z".
-    /// Downstream code can parse these into maps.
+    /// Fuzzy equivalence rules (e.g., "zh=z", "an=ang")
+    /// Language crates should populate this with appropriate defaults
     pub fuzzy: Vec<String>,
-
-    /// Weights for linear interpolation of n-gram probabilities.
-    /// Expected to sum (or be normalized by the scoring code).
+    
+    /// Interpolation weights for n-gram probabilities
     pub unigram_weight: f32,
     pub bigram_weight: f32,
     pub trigram_weight: f32,
     
-    /// Parser options (bitflags-style, similar to libpinyin)
-    /// Allow incomplete syllables (e.g., "n" → matches initials)
-    pub allow_incomplete: bool,
-    /// Correct common ue/ve confusion (e.g., "nue" ↔ "nve")
-    pub correct_ue_ve: bool,
-    /// Correct v/u confusion (e.g., "nv" ↔ "nu")
-    pub correct_v_u: bool,
-    /// Correct uen/un confusion (e.g., "juen" ↔ "jun") - PINYIN_CORRECT_UEN_UN
-    pub correct_uen_un: bool,
-    /// Correct gn/ng confusion (e.g., "bagn" ↔ "bang") - PINYIN_CORRECT_GN_NG
-    pub correct_gn_ng: bool,
-    /// Correct mg/ng confusion (e.g., "bamg" ↔ "bang") - PINYIN_CORRECT_MG_NG
-    pub correct_mg_ng: bool,
-    /// Correct iou/iu confusion (e.g., "liou" ↔ "liu") - PINYIN_CORRECT_IOU_IU
-    pub correct_iou_iu: bool,
-    
-    // Zhuyin/Bopomofo corrections
-    /// Allow incomplete zhuyin syllables (e.g., "ㄋ" → matches "ㄋㄧ", "ㄋㄚ") - ZHUYIN_INCOMPLETE
-    pub zhuyin_incomplete: bool,
-    /// Correct medial/final order errors (e.g., "ㄌㄨㄟ" ↔ "ㄌㄩㄟ") - ZHUYIN_CORRECT_SHUFFLE
-    pub zhuyin_correct_shuffle: bool,
-    /// HSU keyboard layout corrections - ZHUYIN_CORRECT_HSU
-    pub zhuyin_correct_hsu: bool,
-    /// ETEN26 keyboard layout corrections - ZHUYIN_CORRECT_ETEN26
-    pub zhuyin_correct_eten26: bool,
-    
-    // Double Pinyin (Shuangpin) scheme selection
-    /// Double pinyin scheme for alternative input method. None = standard full pinyin.
-    /// Popular schemes: Microsoft (most common), ZiRanMa, ZiGuang, ABC, XiaoHe, PinYinPlusPlus
-    pub double_pinyin_scheme: Option<String>,
-    
     // Advanced Ranking Options (similar to upstream libpinyin sort_option_t)
     /// Sort candidates by phrase length (prefer shorter phrases)
     pub sort_by_phrase_length: bool,
-    /// Sort candidates by pinyin length (prefer shorter pinyin)
-    pub sort_by_pinyin_length: bool,
     /// Filter out candidates longer than input
     pub sort_without_longer_candidate: bool,
     
     // Cache Management
-    /// Maximum number of entries in the input -> candidates cache.
-    /// When cache reaches this size, least-recently-used entries are evicted.
-    /// Default: 1000 entries (reasonable for most IME use cases)
+    /// Maximum number of entries in the input -> candidates cache
     pub max_cache_size: usize,
-}
-
-/// Sort options for candidate ranking (bitflags-style, similar to upstream)
-///
-/// Upstream libpinyin uses sort_option_t enum with bitflag values:
-/// - SORT_BY_PHRASE_LENGTH: Prefer shorter phrases
-/// - SORT_BY_PINYIN_LENGTH: Prefer shorter pinyin representations  
-/// - SORT_WITHOUT_LONGER_CANDIDATE: Filter phrases longer than input
-///
-/// These can be combined to create custom sorting strategies.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SortOption {
-    /// No special sorting (score only)
-    None,
-    /// Prefer shorter phrases
-    ByPhraseLength,
-    /// Prefer shorter pinyin
-    ByPinyinLength,
-    /// Exclude candidates longer than input
-    WithoutLongerCandidate,
-}
-
-impl SortOption {
-    /// Check if this sort option should filter by phrase length
-    pub fn filters_by_length(&self) -> bool {
-        matches!(self, SortOption::WithoutLongerCandidate)
-    }
-    
-    /// Check if this sort option affects sorting order
-    pub fn affects_sort_order(&self) -> bool {
-        matches!(self, SortOption::ByPhraseLength | SortOption::ByPinyinLength)
-    }
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
-            // Comprehensive fuzzy rules based on libpinyin upstream
-            fuzzy: vec![
-                // Initial consonant confusion (shengmu)
-                "zh=z".into(), "z=zh".into(),
-                "ch=c".into(), "c=ch".into(), 
-                "sh=s".into(), "s=sh".into(),
-                "l=n".into(), "n=l".into(),
-                "l=r".into(), "r=l".into(),
-                "f=h".into(), "h=f".into(),
-                "k=g".into(), "g=k".into(),
-                // Final sound confusion (yunmu)
-                "an=ang".into(), "ang=an".into(),
-                "en=eng".into(), "eng=en".into(),
-                "in=ing".into(), "ing=in".into(),
-            ],
+            // Empty fuzzy rules by default - language crates will populate
+            fuzzy: vec![],
             unigram_weight: 0.6,
             bigram_weight: 0.3,
-            // Parser options - enable all corrections by default for better UX
-            allow_incomplete: true,  // Enable by default for better UX
-            correct_ue_ve: true,     // Common typing mistakes
-            correct_v_u: true,       // Common typing mistakes
-            correct_uen_un: true,    // Common typing mistakes (NEW)
-            correct_gn_ng: true,     // Common typing mistakes (NEW)
-            correct_mg_ng: true,     // Common typing mistakes (NEW)
-            correct_iou_iu: true,    // Common typing mistakes (NEW)
-            // Zhuyin corrections - enable by default for better UX
-            zhuyin_incomplete: true,        // Allow partial bopomofo input
-            zhuyin_correct_shuffle: true,   // Correct medial/final order errors
-            zhuyin_correct_hsu: true,       // HSU keyboard corrections
-            zhuyin_correct_eten26: true,    // ETEN26 keyboard corrections
-            // Double pinyin - None by default (standard full pinyin)
-            double_pinyin_scheme: None,
+            trigram_weight: 0.1,
             // Advanced ranking - disabled by default (score-only sorting)
             sort_by_phrase_length: false,
-            sort_by_pinyin_length: false,
             sort_without_longer_candidate: false,
             // Cache management - 1000 entries is reasonable for most IME use
             max_cache_size: 1000,
-            trigram_weight: 0.1,
         }
     }
 }

@@ -8,7 +8,9 @@ mod tests {
     #[test]
     fn test_enhanced_config_toml_format() {
         // Test TOML configuration format
-        let config = Config::default();
+        let mut config = Config::default();
+        // Add some fuzzy rules since default is now empty
+        config.fuzzy = vec!["zh=z".to_string(), "ch=c".to_string()];
         
         // Save to TOML
         let toml_path = "test_config.toml";

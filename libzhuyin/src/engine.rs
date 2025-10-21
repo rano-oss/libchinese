@@ -10,26 +10,71 @@ use std::error::Error;
 use crate::parser::ZhuyinParser;
 use libchinese_core::{Candidate, Model, Lexicon, NGramModel, UserDict, Interpolator};
 
+/// All standard zhuyin/bopomofo syllables.
+/// This is a representative subset - full list would include all tone combinations.
+pub const ZHUYIN_SYLLABLES: &[&str] = &[
+    "ㄅ", "ㄅㄚ", "ㄅㄛ", "ㄅㄞ", "ㄅㄟ", "ㄅㄠ", "ㄅㄢ", "ㄅㄣ", "ㄅㄤ", "ㄅㄥ",
+    "ㄅㄧ", "ㄅㄧㄝ", "ㄅㄧㄠ", "ㄅㄧㄢ", "ㄅㄧㄣ", "ㄅㄧㄥ", "ㄅㄨ",
+    "ㄆ", "ㄆㄚ", "ㄆㄛ", "ㄆㄞ", "ㄆㄟ", "ㄆㄠ", "ㄆㄡ", "ㄆㄢ", "ㄆㄣ", "ㄆㄤ", "ㄆㄥ",
+    "ㄆㄧ", "ㄆㄧㄝ", "ㄆㄧㄠ", "ㄆㄧㄢ", "ㄆㄧㄣ", "ㄆㄧㄥ", "ㄆㄨ",
+    "ㄇ", "ㄇㄚ", "ㄇㄛ", "ㄇㄜ", "ㄇㄞ", "ㄇㄟ", "ㄇㄠ", "ㄇㄡ", "ㄇㄢ", "ㄇㄣ", "ㄇㄤ", "ㄇㄥ",
+    "ㄇㄧ", "ㄇㄧㄝ", "ㄇㄧㄠ", "ㄇㄧㄡ", "ㄇㄧㄢ", "ㄇㄧㄣ", "ㄇㄧㄥ", "ㄇㄨ",
+    "ㄈ", "ㄈㄚ", "ㄈㄛ", "ㄈㄟ", "ㄈㄡ", "ㄈㄢ", "ㄈㄣ", "ㄈㄤ", "ㄈㄥ", "ㄈㄨ",
+    "ㄉ", "ㄉㄚ", "ㄉㄜ", "ㄉㄞ", "ㄉㄟ", "ㄉㄠ", "ㄉㄡ", "ㄉㄢ", "ㄉㄤ", "ㄉㄥ",
+    "ㄉㄧ", "ㄉㄧㄝ", "ㄉㄧㄠ", "ㄉㄧㄡ", "ㄉㄧㄢ", "ㄉㄧㄥ", "ㄉㄨ", "ㄉㄨㄛ", "ㄉㄨㄟ", "ㄉㄨㄢ", "ㄉㄨㄣ", "ㄉㄨㄥ",
+    "ㄊ", "ㄊㄚ", "ㄊㄜ", "ㄊㄞ", "ㄊㄠ", "ㄊㄡ", "ㄊㄢ", "ㄊㄤ", "ㄊㄥ",
+    "ㄊㄧ", "ㄊㄧㄝ", "ㄊㄧㄠ", "ㄊㄧㄢ", "ㄊㄧㄥ", "ㄊㄨ", "ㄊㄨㄛ", "ㄊㄨㄟ", "ㄊㄨㄢ", "ㄊㄨㄣ", "ㄊㄨㄥ",
+    "ㄋ", "ㄋㄚ", "ㄋㄜ", "ㄋㄞ", "ㄋㄟ", "ㄋㄠ", "ㄋㄡ", "ㄋㄢ", "ㄋㄣ", "ㄋㄤ", "ㄋㄥ",
+    "ㄋㄧ", "ㄋㄧㄝ", "ㄋㄧㄠ", "ㄋㄧㄡ", "ㄋㄧㄢ", "ㄋㄧㄣ", "ㄋㄧㄤ", "ㄋㄧㄥ", "ㄋㄨ", "ㄋㄨㄛ", "ㄋㄨㄟ", "ㄋㄨㄢ", "ㄋㄨㄥ", "ㄋㄩ", "ㄋㄩㄝ",
+    "ㄌ", "ㄌㄚ", "ㄌㄛ", "ㄌㄜ", "ㄌㄞ", "ㄌㄟ", "ㄌㄠ", "ㄌㄡ", "ㄌㄢ", "ㄌㄤ", "ㄌㄥ",
+    "ㄌㄧ", "ㄌㄧㄚ", "ㄌㄧㄝ", "ㄌㄧㄠ", "ㄌㄧㄡ", "ㄌㄧㄢ", "ㄌㄧㄣ", "ㄌㄧㄤ", "ㄌㄧㄥ", "ㄌㄨ", "ㄌㄨㄛ", "ㄌㄨㄢ", "ㄌㄨㄣ", "ㄌㄨㄥ", "ㄌㄩ", "ㄌㄩㄝ",
+    "ㄍ", "ㄍㄚ", "ㄍㄜ", "ㄍㄞ", "ㄍㄟ", "ㄍㄠ", "ㄍㄡ", "ㄍㄢ", "ㄍㄣ", "ㄍㄤ", "ㄍㄥ",
+    "ㄍㄨ", "ㄍㄨㄚ", "ㄍㄨㄛ", "ㄍㄨㄞ", "ㄍㄨㄟ", "ㄍㄨㄢ", "ㄍㄨㄣ", "ㄍㄨㄤ", "ㄍㄨㄥ",
+    "ㄎ", "ㄎㄚ", "ㄎㄜ", "ㄎㄞ", "ㄎㄠ", "ㄎㄡ", "ㄎㄢ", "ㄎㄣ", "ㄎㄤ", "ㄎㄥ",
+    "ㄎㄨ", "ㄎㄨㄚ", "ㄎㄨㄛ", "ㄎㄨㄞ", "ㄎㄨㄟ", "ㄎㄨㄢ", "ㄎㄨㄣ", "ㄎㄨㄤ", "ㄎㄨㄥ",
+    "ㄏ", "ㄏㄚ", "ㄏㄜ", "ㄏㄞ", "ㄏㄟ", "ㄏㄠ", "ㄏㄡ", "ㄏㄢ", "ㄏㄣ", "ㄏㄤ", "ㄏㄥ",
+    "ㄏㄨ", "ㄏㄨㄚ", "ㄏㄨㄛ", "ㄏㄨㄞ", "ㄏㄨㄟ", "ㄏㄨㄢ", "ㄏㄨㄣ", "ㄏㄨㄤ", "ㄏㄨㄥ",
+    "ㄐ", "ㄐㄧ", "ㄐㄧㄚ", "ㄐㄧㄝ", "ㄐㄧㄠ", "ㄐㄧㄡ", "ㄐㄧㄢ", "ㄐㄧㄣ", "ㄐㄧㄤ", "ㄐㄧㄥ",
+    "ㄐㄩ", "ㄐㄩㄝ", "ㄐㄩㄢ", "ㄐㄩㄣ", "ㄐㄩㄥ",
+    "ㄑ", "ㄑㄧ", "ㄑㄧㄚ", "ㄑㄧㄝ", "ㄑㄧㄠ", "ㄑㄧㄡ", "ㄑㄧㄢ", "ㄑㄧㄣ", "ㄑㄧㄤ", "ㄑㄧㄥ",
+    "ㄑㄩ", "ㄑㄩㄝ", "ㄑㄩㄢ", "ㄑㄩㄣ", "ㄑㄩㄥ",
+    "ㄒ", "ㄒㄧ", "ㄒㄧㄚ", "ㄒㄧㄝ", "ㄒㄧㄠ", "ㄒㄧㄡ", "ㄒㄧㄢ", "ㄒㄧㄣ", "ㄒㄧㄤ", "ㄒㄧㄥ",
+    "ㄒㄩ", "ㄒㄩㄝ", "ㄒㄩㄢ", "ㄒㄩㄣ", "ㄒㄩㄥ",
+    "ㄓ", "ㄓㄚ", "ㄓㄜ", "ㄓㄞ", "ㄓㄟ", "ㄓㄠ", "ㄓㄡ", "ㄓㄢ", "ㄓㄣ", "ㄓㄤ", "ㄓㄥ",
+    "ㄓㄨ", "ㄓㄨㄚ", "ㄓㄨㄛ", "ㄓㄨㄞ", "ㄓㄨㄟ", "ㄓㄨㄢ", "ㄓㄨㄣ", "ㄓㄨㄤ", "ㄓㄨㄥ",
+    "ㄔ", "ㄔㄚ", "ㄔㄜ", "ㄔㄞ", "ㄔㄠ", "ㄔㄡ", "ㄔㄢ", "ㄔㄣ", "ㄔㄤ", "ㄔㄥ",
+    "ㄔㄨ", "ㄔㄨㄚ", "ㄔㄨㄛ", "ㄔㄨㄞ", "ㄔㄨㄟ", "ㄔㄨㄢ", "ㄔㄨㄣ", "ㄔㄨㄤ", "ㄔㄨㄥ",
+    "ㄕ", "ㄕㄚ", "ㄕㄜ", "ㄕㄞ", "ㄕㄟ", "ㄕㄠ", "ㄕㄡ", "ㄕㄢ", "ㄕㄣ", "ㄕㄤ", "ㄕㄥ",
+    "ㄕㄨ", "ㄕㄨㄚ", "ㄕㄨㄛ", "ㄕㄨㄞ", "ㄕㄨㄟ", "ㄕㄨㄢ", "ㄕㄨㄣ", "ㄕㄨㄤ", "ㄕㄨㄥ",
+    "ㄖ", "ㄖㄜ", "ㄖㄠ", "ㄖㄡ", "ㄖㄢ", "ㄖㄣ", "ㄖㄤ", "ㄖㄥ",
+    "ㄖㄨ", "ㄖㄨㄛ", "ㄖㄨㄞ", "ㄖㄨㄟ", "ㄖㄨㄢ", "ㄖㄨㄣ", "ㄖㄨㄥ",
+    "ㄗ", "ㄗㄚ", "ㄗㄜ", "ㄗㄞ", "ㄗㄟ", "ㄗㄠ", "ㄗㄡ", "ㄗㄢ", "ㄗㄣ", "ㄗㄤ", "ㄗㄥ",
+    "ㄗㄨ", "ㄗㄨㄛ", "ㄗㄨㄟ", "ㄗㄨㄢ", "ㄗㄨㄣ", "ㄗㄨㄥ",
+    "ㄘ", "ㄘㄚ", "ㄘㄜ", "ㄘㄞ", "ㄘㄠ", "ㄘㄡ", "ㄘㄢ", "ㄘㄣ", "ㄘㄤ", "ㄘㄥ",
+    "ㄘㄨ", "ㄘㄨㄛ", "ㄘㄨㄟ", "ㄘㄨㄢ", "ㄘㄨㄣ", "ㄘㄨㄥ",
+    "ㄙ", "ㄙㄚ", "ㄙㄜ", "ㄙㄞ", "ㄙㄠ", "ㄙㄡ", "ㄙㄢ", "ㄙㄣ", "ㄙㄤ", "ㄙㄥ",
+    "ㄙㄨ", "ㄙㄨㄛ", "ㄙㄨㄟ", "ㄙㄨㄢ", "ㄙㄨㄣ", "ㄙㄨㄥ",
+    "ㄚ", "ㄛ", "ㄜ", "ㄞ", "ㄟ", "ㄠ", "ㄡ", "ㄢ", "ㄣ", "ㄤ", "ㄥ", "ㄦ",
+    "ㄧ", "ㄧㄚ", "ㄧㄛ", "ㄧㄝ", "ㄧㄞ", "ㄧㄠ", "ㄧㄡ", "ㄧㄢ", "ㄧㄣ", "ㄧㄤ", "ㄧㄥ",
+    "ㄨ", "ㄨㄚ", "ㄨㄛ", "ㄨㄞ", "ㄨㄟ", "ㄨㄢ", "ㄨㄣ", "ㄨㄤ", "ㄨㄥ",
+    "ㄩ", "ㄩㄝ", "ㄩㄢ", "ㄩㄣ", "ㄩㄥ",
+];
+
 /// Public engine for libzhuyin
 pub struct Engine {
     inner: libchinese_core::Engine<ZhuyinParser>,
 }
 
 impl Engine {
-    /// Construct an Engine from a pre-built Model and ZhuyinParser.
+    /// Construct an Engine from a pre-built Model.
     ///
     /// Uses standard zhuyin fuzzy rules by default.
-    pub fn new(model: Model, parser: ZhuyinParser) -> Self {
+    /// Parser is created internally with standard bopomofo syllables.
+    pub fn new(model: Model) -> Self {
         let rules = crate::standard_fuzzy_rules();
+        let parser = ZhuyinParser::with_syllables(ZHUYIN_SYLLABLES);
         Self {
             inner: libchinese_core::Engine::new(model, parser, rules),
-        }
-    }
-    
-    /// Construct an Engine with custom fuzzy rules.
-    pub fn with_fuzzy_rules(model: Model, parser: ZhuyinParser, fuzzy_rules: Vec<String>) -> Self {
-        Self {
-            inner: libchinese_core::Engine::new(model, parser, fuzzy_rules),
         }
     }
 
@@ -91,37 +136,8 @@ impl Engine {
 
         let model = Model::new(lex, ngram, userdict, libchinese_core::Config::default(), interp);
 
-        // Load parser with syllables from data/zhuyin_syllables.txt
-        let parser = {
-            let syllables_path = std::path::Path::new("data/zhuyin_syllables.txt");
-            if syllables_path.exists() {
-                match std::fs::read_to_string(syllables_path) {
-                    Ok(content) => {
-                        let syllables: Vec<&str> = content.lines()
-                            .map(|s| s.trim())
-                            .filter(|s| !s.is_empty())
-                            .collect();
-                        eprintln!("✓ Loaded {} zhuyin syllables", syllables.len());
-                        ZhuyinParser::with_syllables(&syllables)
-                    }
-                    Err(e) => {
-                        eprintln!("warning: failed to load zhuyin_syllables.txt: {}", e);
-                        eprintln!("using fallback syllable list");
-                        ZhuyinParser::with_syllables(&[
-                            "ㄋㄧ", "ㄏㄠ", "ㄓㄨㄥ", "ㄍㄨㄛ"
-                        ])
-                    }
-                }
-            } else {
-                eprintln!("warning: zhuyin_syllables.txt not found at {:?}", syllables_path);
-                eprintln!("using fallback syllable list");
-                ZhuyinParser::with_syllables(&[
-                    "ㄋㄧ", "ㄏㄠ", "ㄓㄨㄥ", "ㄍㄨㄛ"
-                ])
-            }
-        };
-
-        Ok(Self::new(model, parser))
+        // Parser is created internally using ZHUYIN_SYLLABLES
+        Ok(Self::new(model))
     }
 
     /// Get cache statistics (hits, misses, hit rate)

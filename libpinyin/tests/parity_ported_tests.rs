@@ -49,20 +49,7 @@ fn parity_ngram_scoring_example() {
         unigram_weight: 0.3,
         bigram_weight: 0.6,
         trigram_weight: 0.1,
-        allow_incomplete: true,
-        correct_ue_ve: true,
-        correct_v_u: true,
-        correct_uen_un: true,
-        correct_gn_ng: true,
-        correct_mg_ng: true,
-        correct_iou_iu: true,
-        zhuyin_incomplete: true,
-        zhuyin_correct_shuffle: true,
-        zhuyin_correct_hsu: true,
-        zhuyin_correct_eten26: true,
-        double_pinyin_scheme: None,
         sort_by_phrase_length: false,
-        sort_by_pinyin_length: false,
         sort_without_longer_candidate: false,
         max_cache_size: 1000,
     };
@@ -77,9 +64,9 @@ fn parity_ngram_scoring_example() {
 fn parity_engine_lookup_flow() {
     // Small end-to-end flow: parser -> lexicon -> ngram -> userdict -> engine
     let mut lex = Lexicon::new();
-    // core::Lexicon::insert currently accepts (key, phrase) only.
-    lex.insert("nihao", "你好");
-    lex.insert("nihao", "你号");
+    // core::Lexicon::insert uses apostrophe-separated keys after segmentation fix
+    lex.insert("ni'hao", "你好");
+    lex.insert("ni'hao", "你号");
 
     let mut ng = NGramModel::new();
     ng.insert_unigram("你", -1.0_f64);
@@ -90,11 +77,11 @@ fn parity_engine_lookup_flow() {
         "test_userdict_parity_{}.redb", std::process::id()
     ));
     let user = UserDict::new(&temp_path).expect("create test userdict");
-    let cfg = Config::default();
+    let cfg = libpinyin::PinyinConfig::default().into_base();
     let model = Model::new(lex, ng, user, cfg, Interpolator::empty_for_test());
 
-    let parser = Parser::with_syllables(&["ni", "hao"]);
-    let engine = Engine::new(model, parser);
+    // Parser is now created internally with PINYIN_SYLLABLES
+    let engine = Engine::new(model);
     let cands = engine.input("nihao");
     assert!(!cands.is_empty());
     // Top candidate should be the highest-frequency phrase in the lexicon

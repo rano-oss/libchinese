@@ -1,17 +1,4 @@
-//! Simple prefix trie (TrieNode) for syllable validation and segmentation.
-//!
-//! This module provides a generic character-based trie used by both pinyin
-//! and zhuyin parsers for:
-//! - Storing valid syllables
-//! - Incremental prefix matching during DP segmentation
-//! - O(n) walk_prefixes operation for beam search
-//!
-//! The trie is optimized for the specific use case of IME syllable
-//! segmentation where we need to:
-//! 1. Check if a string is a valid syllable
-//! 2. Find all valid syllable prefixes from a position in one pass
-//!
-//! This implementation is kept simple and efficient for these specific needs.
+/// Prefix trie for syllable validation and segmentation.
 
 use std::collections::HashMap;
 

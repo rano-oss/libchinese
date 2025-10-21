@@ -154,44 +154,10 @@ fn test_combined_ranking_options() {
 }
 
 #[test]
-fn test_sort_by_pinyin_length() {
-    // Test sorting by pinyin length
-    let mut cfg = Config::default();
-    cfg.sort_by_pinyin_length = true;
-    
-    let mut candidates = vec![
-        make_candidate("你", 5.0),         // Approximated pinyin len: 1
-        make_candidate("你好", 5.0),       // Approximated pinyin len: 2
-        make_candidate("你好吗", 5.0),     // Approximated pinyin len: 3
-    ];
-    
-    // Apply pinyin length penalty (using phrase length as proxy)
-    for cand in candidates.iter_mut() {
-        let pinyin_len_estimate = cand.text.chars().count();
-        let penalty = (pinyin_len_estimate.saturating_sub(1)) as f32 * 0.3;
-        cand.score -= penalty;
-    }
-    
-    // After penalties:
-    // "你" (1): 5.0 - 0.0 = 5.0
-    // "你好" (2): 5.0 - 0.3 = 4.7
-    // "你好吗" (3): 5.0 - 0.6 = 4.4
-    
-    candidates.sort_by(|a, b| {
-        b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal)
-    });
-    
-    assert_eq!(candidates[0].text, "你");
-    assert_eq!(candidates[1].text, "你好");
-    assert_eq!(candidates[2].text, "你好吗");
-}
-
-#[test]
 fn test_no_ranking_options() {
     // With all ranking options disabled, pure score-based sorting
     let cfg = Config::default();
     assert!(!cfg.sort_by_phrase_length);
-    assert!(!cfg.sort_by_pinyin_length);
     assert!(!cfg.sort_without_longer_candidate);
     
     let mut candidates = vec![

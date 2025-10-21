@@ -160,26 +160,13 @@ impl<P: SyllableParser> Engine<P> {
             });
         }
         
-        // Adjust scores based on length preferences
-        if cfg.sort_by_phrase_length || cfg.sort_by_pinyin_length {
+        // Adjust scores based on phrase length preference
+        if cfg.sort_by_phrase_length {
             for cand in candidates.iter_mut() {
                 let phrase_len = cand.text.chars().count();
-                
-                // Apply phrase length penalty (longer = lower score)
-                if cfg.sort_by_phrase_length {
-                    // Penalize each extra character beyond 1
-                    let length_penalty = (phrase_len.saturating_sub(1)) as f32 * 0.5;
-                    cand.score -= length_penalty;
-                }
-                
-                // Apply pinyin length penalty
-                // Note: In full implementation, this would use the actual pinyin length
-                // For now, we approximate with phrase length as a proxy
-                if cfg.sort_by_pinyin_length {
-                    let pinyin_len_estimate = phrase_len; // Simplified
-                    let length_penalty = (pinyin_len_estimate.saturating_sub(1)) as f32 * 0.3;
-                    cand.score -= length_penalty;
-                }
+                // Penalize each extra character beyond 1
+                let length_penalty = (phrase_len.saturating_sub(1)) as f32 * 0.5;
+                cand.score -= length_penalty;
             }
         }
         
@@ -188,7 +175,7 @@ impl<P: SyllableParser> Engine<P> {
     
     /// Sort candidates by score (primary) and optionally by phrase length (secondary).
     fn sort_candidates(&self, candidates: &mut [Candidate]) {
-        let sort_by_length = self.model.config.sort_by_phrase_length || self.model.config.sort_by_pinyin_length;
+        let sort_by_length = self.model.config.sort_by_phrase_length;
         
         candidates.sort_by(|a, b| {
             // Primary: score (higher is better)
@@ -206,45 +193,8 @@ impl<P: SyllableParser> Engine<P> {
     
     /// Commit a phrase to user learning.
     ///
-    /// This records that the user selected the given phrase, incrementing its
-    /// frequency in the user dictionary. This enables the IME to learn user
-    /// preferences over time.
-    ///
-    /// After committing, the cache is cleared to ensure updated frequencies
-    /// are reflected in future candidate rankings.
-    ///
-    /// # Arguments
-    /// * `phrase` - The phrase text that the user selected
-    ///
-    /// # Example
-    /// ```no_run
-    /// # use libchinese_core::{Engine, Model, Lexicon, NGramModel, UserDict, Config, Interpolator};
-    /// # use libchinese_core::engine::{SyllableParser, SyllableType};
-    /// # struct DummyParser;
-    /// # struct DummySyllable(String);
-    /// # impl SyllableType for DummySyllable {
-    /// #     fn text(&self) -> &str { &self.0 }
-    /// #     fn is_fuzzy(&self) -> bool { false }
-    /// # }
-    /// # impl SyllableParser for DummyParser {
-    /// #     type Syllable = DummySyllable;
-    /// #     fn segment_top_k(&self, _: &str, _: usize, _: bool) -> Vec<Vec<Self::Syllable>> { vec![] }
-    /// # }
-    /// # let model = Model::new(
-    /// #     Lexicon::new(),
-    /// #     NGramModel::new(),
-    /// #     UserDict::new(":memory:").unwrap(),
-    /// #     Config::default(),
-    /// #     Interpolator::empty_for_test(),
-    /// # );
-    /// # let engine = Engine::new(model, DummyParser, vec![]);
-    /// // User selects a phrase
-    /// let candidates = engine.input("nihao");
-    /// let selected = &candidates[0].text;
-    ///
-    /// // Record the selection for learning
-    /// engine.commit(selected);
-    /// ```
+    /// Records user selection to boost future rankings.
+    /// Clears cache to reflect updated frequencies immediately.
     pub fn commit(&self, phrase: &str) {
         // Learn the phrase in the user dictionary (increments frequency by 1)
         self.model.userdict.learn(phrase);
@@ -299,17 +249,22 @@ impl<P: SyllableParser> Engine<P> {
         
         // For each alternative, recurse to the next position
         for alt in alternatives {
-            let new_current = format!("{}{}", current, alt);
+            // Add apostrophe separator between syllables (not before first)
+            let separator = if current.is_empty() { "" } else { "'" };
+            let new_current = format!("{}{}{}", current, separator, alt);
             self.generate_combinations_recursive(segmentation, position + 1, new_current, results);
         }
     }
 
     /// Convert a syllable segmentation to a lookup key.
+    /// 
+    /// Joins syllables with apostrophes to match lexicon key format.
+    /// Example: ["ni", "hao"] -> "ni'hao"
     fn segmentation_to_key(seg: &[P::Syllable]) -> String {
         seg.iter()
             .map(|s| s.text())
             .collect::<Vec<&str>>()
-            .join("")
+            .join("'")
     }
     
     /// Get cache statistics for monitoring.
