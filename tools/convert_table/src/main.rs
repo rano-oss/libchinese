@@ -1,7 +1,7 @@
 use anyhow::Result;
 use fst::MapBuilder;
 use serde::{Deserialize, Serialize};
-use libchinese_core::{NGramModel, interpolation::Lambdas};
+use libchinese_core::{NGramModel, Lambdas};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::{create_dir_all, File};
 use std::io::{BufRead, BufReader};

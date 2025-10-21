@@ -42,7 +42,7 @@ fn build_demo_engine() -> Engine {
     user.learn("你好");
 
     let cfg = Config::default();
-    let model = Model::new(lx, ng, user, cfg, Interpolator::new());
+    let model = Model::new(lx, ng, user, cfg, Interpolator::empty_for_test());
     
     let parser = ZhuyinParser::with_syllables(&[
         "ㄋㄧˇ", "ㄏㄠˇ", "ㄏㄠˋ", "ㄓㄨㄥ", "ㄍㄨㄛˊ"

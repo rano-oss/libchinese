@@ -5,6 +5,7 @@
 //! - Provide scoring helpers (interpolated log-prob scoring).
 //! - Provide simple training helper to convert counts -> log-probs.
 //! - Provide (basic) serialization helpers for bincode-based model IO.
+//! - Manage interpolation lambdas for per-key adaptive scoring.
 //!
 //! Reference upstream files for behavior and algorithms:
 //! - libpinyin: `src/storage/ngram.cpp`, `utils/training/*`
@@ -15,12 +16,70 @@
 //!   binary formats, memory-mapped data structures, or more advanced smoothing)
 //!   in later phases.
 
+use anyhow::Result;
+use fst::Map;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{BufReader, BufWriter};
+use std::io::{BufReader, BufWriter, Read};
 use std::path::Path;
-use crate::interpolation::{Interpolator, Lambdas};
+
+/// Lambda weights for linear interpolation of unigram, bigram, and trigram probabilities.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Lambdas(pub [f32; 3]);
+
+/// Interpolator holds an fst map (key -> index) and a bincode vector
+/// storing `Lambdas` values keyed by index.
+#[derive(Debug, Clone)]
+pub struct Interpolator {
+    map: Map<Vec<u8>>,
+    // in-memory bincode-backed lambdas vector (index -> Lambdas)
+    lambdas: Vec<Lambdas>,
+}
+
+impl Interpolator {
+    /// Load from fst + bincode pair.
+    /// 
+    /// - fst_path: lambdas.fst file mapping keys to indices
+    /// - bincode_path: lambdas.bincode file containing Vec<Lambdas>
+    pub fn load<P: AsRef<Path>>(fst_path: P, bincode_path: P) -> Result<Self> {
+        let fst_path = fst_path.as_ref();
+        let bincode_path = bincode_path.as_ref();
+
+        let map = {
+            let mut f = File::open(fst_path)?;
+            let mut buf = Vec::new();
+            f.read_to_end(&mut buf)?;
+            Map::new(buf)?
+        };
+        
+        let lambdas = {
+            let mut f = File::open(bincode_path)?;
+            let mut buf = Vec::new();
+            f.read_to_end(&mut buf)?;
+            bincode::deserialize(&buf)?
+        };
+        
+        Ok(Self { map, lambdas })
+    }
+
+    /// Lookup lambdas for a key. Returns None if not found.
+    pub fn lookup(&self, key: &str) -> Option<Lambdas> {
+        let idx = self.map.get(key)? as usize;
+        self.lambdas.get(idx).cloned()
+    }
+
+    /// Create an empty interpolator with default lambdas (for testing only).
+    /// 
+    /// Note: This should only be used in tests. Production code should always
+    /// load interpolator data from files using `Interpolator::load()`.
+    pub fn empty_for_test() -> Self {
+        Self {
+            map: Map::default(),
+            lambdas: vec![Lambdas([0.33, 0.33, 0.34])],
+        }
+    }
+}
 
 /// Lightweight container holding ln(probabilities) for 1/2/3-grams.
 ///

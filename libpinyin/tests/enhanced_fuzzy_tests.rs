@@ -30,7 +30,7 @@ fn enhanced_fuzzy_matching_comprehensive_rules() {
     ));
     let user = UserDict::new(&temp_path).expect("create test userdict");
     let cfg = Config::default(); // Now includes comprehensive fuzzy rules
-    let model = Model::new(lex, ng, user, cfg, Interpolator::new());
+    let model = Model::new(lex, ng, user, cfg, Interpolator::empty_for_test());
 
     let parser = Parser::with_syllables(&[
         "zi", "zhi", "si", "shi", "ci", "chi", 
@@ -85,7 +85,7 @@ fn enhanced_ngram_scoring_with_backoff() {
     ));
     let user = UserDict::new(&temp_path).expect("create test userdict");
     let cfg = Config::default();
-    let model = Model::new(lex, ng, user, cfg, Interpolator::new());
+    let model = Model::new(lex, ng, user, cfg, Interpolator::empty_for_test());
 
     // Test that the enhanced scoring correctly applies backoff smoothing
     let candidates1 = model.candidates_for_key("wo", 5);

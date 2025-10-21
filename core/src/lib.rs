@@ -22,7 +22,7 @@ use std::io::Read;
 use bincode;
 
 pub mod ngram;
-pub use ngram::NGramModel;
+pub use ngram::{Interpolator, Lambdas, NGramModel};
 
 pub mod trie;
 pub use trie::TrieNode;
@@ -151,9 +151,6 @@ pub mod utils {
         s.nfc().collect::<String>().trim().to_string()
     }
 }
-
-pub mod interpolation;
-pub use interpolation::{Interpolator, Lambdas};
 
 pub mod userdict;
 pub use userdict::UserDict;

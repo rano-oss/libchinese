@@ -79,22 +79,10 @@ impl Engine {
             UserDict::new(&ud_path)?
         };
 
-        // Load interpolator if present
-        let interp = {
-            let fst_path = data_dir.join("lambdas.fst");
-            let bincode_path = data_dir.join("lambdas.bincode");
-            if fst_path.exists() && bincode_path.exists() {
-                match Interpolator::load(&fst_path, &bincode_path) {
-                    Ok(i) => i,
-                    Err(e) => {
-                        eprintln!("warning: failed to load interpolator: {}, using new", e);
-                        Interpolator::new()
-                    }
-                }
-            } else {
-                Interpolator::new()
-            }
-        };
+        // Load interpolator (required)
+        let fst_path = data_dir.join("lambdas.fst");
+        let bincode_path = data_dir.join("lambdas.bincode");
+        let interp = Interpolator::load(&fst_path, &bincode_path)?;
 
         let model = Model::new(lex, ngram, userdict, libchinese_core::Config::default(), interp);
 

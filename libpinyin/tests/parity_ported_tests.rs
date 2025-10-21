@@ -82,7 +82,7 @@ fn parity_engine_lookup_flow() {
     ));
     let user = UserDict::new(&temp_path).expect("create test userdict");
     let cfg = Config::default();
-    let model = Model::new(lex, ng, user, cfg, Interpolator::new());
+    let model = Model::new(lex, ng, user, cfg, Interpolator::empty_for_test());
 
     let parser = Parser::with_syllables(&["ni", "hao"]);
     let engine = Engine::new(model, parser);

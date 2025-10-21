@@ -173,7 +173,7 @@ impl<P: SyllableParser> Engine<P> {
     /// #     NGramModel::new(),
     /// #     UserDict::new(":memory:").unwrap(),
     /// #     Config::default(),
-    /// #     Interpolator::new(),
+    /// #     Interpolator::empty_for_test(),
     /// # );
     /// # let engine = Engine::new(model, DummyParser, vec![]);
     /// // User selects a phrase

@@ -50,12 +50,12 @@ fn build_model() -> Result<Model, Box<dyn std::error::Error>> {
         UserDict::new(&temp_path).expect("failed to create temp userdict")
     });
     
-    // Load interpolator or create empty one
+    // Load interpolator or create empty one for demo
     let lambdas_fst = data_dir.join("lambdas.fst");
     let lambdas_bincode = data_dir.join("lambdas.bincode");
     let interp = Interpolator::load(&lambdas_fst, &lambdas_bincode).unwrap_or_else(|e| {
         eprintln!("⚠ Failed to load interpolator: {}", e);
-        Interpolator::new()
+        Interpolator::empty_for_test()
     });
 
     let cfg = Config::default();
