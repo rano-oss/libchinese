@@ -139,10 +139,13 @@ libzhuyin now supports:
 
 ## Future Work
 
-1. **User Dictionary Mutation**: Expose commit() through core engine
+1. **User Dictionary Mutation**: Expose commit() through core engine - see UPSTREAM_FEATURE_COMPARISON.md HIGH PRIORITY #1
 2. **Cache Management**: Add cache size limits and eviction policies
 3. **Performance Metrics**: Add detailed profiling for algorithm steps
 4. **Additional Parsers**: Easy to add new input methods (Cangjie, Wubi, etc.)
+5. **Additional Corrections**: Implement missing pinyin corrections (uen/un, gn/ng, mg/ng, iou/iu) - see UPSTREAM_FEATURE_COMPARISON.md HIGH PRIORITY #2
+
+See **UPSTREAM_FEATURE_COMPARISON.md** for comprehensive feature gap analysis against upstream libpinyin.
 
 ## Technical Details
 

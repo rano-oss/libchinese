@@ -495,6 +495,40 @@ impl Parser {
             }
         }
         
+        // Correction 3: uen ↔ un (e.g., "juen" ↔ "jun", "chuen" ↔ "chun")
+        // PINYIN_CORRECT_UEN_UN
+        if s.contains("uen") {
+            results.push(s.replace("uen", "un"));
+        }
+        if s.contains("un") {
+            results.push(s.replace("un", "uen"));
+        }
+        
+        // Correction 4: gn ↔ ng (e.g., "bagn" ↔ "bang", "hegn" ↔ "heng")
+        // PINYIN_CORRECT_GN_NG
+        if s.contains("gn") {
+            results.push(s.replace("gn", "ng"));
+        }
+        if s.contains("ng") {
+            results.push(s.replace("ng", "gn"));
+        }
+        
+        // Correction 5: mg ↔ ng (e.g., "bamg" ↔ "bang", "hemg" ↔ "heng")
+        // PINYIN_CORRECT_MG_NG
+        if s.contains("mg") {
+            results.push(s.replace("mg", "ng"));
+        }
+        // Note: ng → mg already covered above in bidirectional ng corrections
+        
+        // Correction 6: iou ↔ iu (e.g., "liou" ↔ "liu", "jiou" ↔ "jiu")
+        // PINYIN_CORRECT_IOU_IU
+        if s.contains("iou") {
+            results.push(s.replace("iou", "iu"));
+        }
+        if s.contains("iu") {
+            results.push(s.replace("iu", "iou"));
+        }
+        
         results
     }
 

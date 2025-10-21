@@ -186,14 +186,19 @@ See `FUZZY_REFACTORING.md` for detailed upstream references.
 
 ## Future Work
 
-Potential improvements:
+Potential improvements (see **UPSTREAM_FEATURE_COMPARISON.md** for complete analysis):
 
 1. **Make penalties configurable**: Allow users to tune distance/cost values
 2. **Expose parser options in Engine API**: Currently only settable via Config
 3. **Add correction statistics**: Track how often each correction type is used
 4. **Smart completion selection**: Instead of first match, rank completions by frequency
 5. **More correction rules**: Expand beyond ue/ve and v/u based on common errors
+   - HIGH PRIORITY: Add uen/un, gn/ng, mg/ng, iou/iu corrections from upstream
 6. **Zhuyin parity**: Implement similar enhancements for libzhuyin parser
+   - ZHUYIN_INCOMPLETE flag
+   - ZHUYIN_CORRECT_SHUFFLE
+   - Scheme-specific corrections (HSU, ETEN26)
+7. **Tone handling**: Integrate USE_TONE and FORCE_TONE flags
 
 ## Examples
 

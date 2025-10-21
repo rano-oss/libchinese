@@ -74,6 +74,14 @@ pub struct Config {
     pub correct_ue_ve: bool,
     /// Correct v/u confusion (e.g., "nv" ↔ "nu")
     pub correct_v_u: bool,
+    /// Correct uen/un confusion (e.g., "juen" ↔ "jun") - PINYIN_CORRECT_UEN_UN
+    pub correct_uen_un: bool,
+    /// Correct gn/ng confusion (e.g., "bagn" ↔ "bang") - PINYIN_CORRECT_GN_NG
+    pub correct_gn_ng: bool,
+    /// Correct mg/ng confusion (e.g., "bamg" ↔ "bang") - PINYIN_CORRECT_MG_NG
+    pub correct_mg_ng: bool,
+    /// Correct iou/iu confusion (e.g., "liou" ↔ "liu") - PINYIN_CORRECT_IOU_IU
+    pub correct_iou_iu: bool,
 }
 
 impl Default for Config {
@@ -96,10 +104,14 @@ impl Default for Config {
             ],
             unigram_weight: 0.6,
             bigram_weight: 0.3,
-            // Parser options
+            // Parser options - enable all corrections by default for better UX
             allow_incomplete: true,  // Enable by default for better UX
             correct_ue_ve: true,     // Common typing mistakes
             correct_v_u: true,       // Common typing mistakes
+            correct_uen_un: true,    // Common typing mistakes (NEW)
+            correct_gn_ng: true,     // Common typing mistakes (NEW)
+            correct_mg_ng: true,     // Common typing mistakes (NEW)
+            correct_iou_iu: true,    // Common typing mistakes (NEW)
             trigram_weight: 0.1,
         }
     }

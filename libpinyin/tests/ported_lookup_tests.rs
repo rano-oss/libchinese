@@ -13,7 +13,6 @@ use libpinyin::parser::Parser;
 /// so one phrase starts ranked above the other, then we repeatedly commit the
 /// lower-ranked phrase until it overtakes the previously higher-ranked item.
 #[test]
-#[ignore = "commit() not yet implemented in core engine - needs userdict mutation API"]
 fn userdict_commit_changes_ranking_end_to_end() {
     // Build lexicon with two competing phrases for the key "nihao".
     let mut lex = Lexicon::new();
@@ -43,8 +42,8 @@ fn userdict_commit_changes_ranking_end_to_end() {
     // Create parser seeded with expected syllables.
     let parser = Parser::with_syllables(&["ni", "hao"]);
 
-    // Engine must be mutable because we will call `commit`.
-    let mut engine = Engine::new(model, parser);
+    // Engine doesn't need to be mutable - commit() takes &self
+    let engine = Engine::new(model, parser);
 
     // Initial query: expect "你号" to be top due to ngram advantages.
     let cands_before = engine.input("nihao");

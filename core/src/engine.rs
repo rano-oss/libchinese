@@ -142,6 +142,55 @@ impl<P: SyllableParser> Engine<P> {
         vec
     }
     
+    /// Commit a phrase to user learning.
+    ///
+    /// This records that the user selected the given phrase, incrementing its
+    /// frequency in the user dictionary. This enables the IME to learn user
+    /// preferences over time.
+    ///
+    /// After committing, the cache is cleared to ensure updated frequencies
+    /// are reflected in future candidate rankings.
+    ///
+    /// # Arguments
+    /// * `phrase` - The phrase text that the user selected
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use libchinese_core::{Engine, Model, Lexicon, NGramModel, UserDict, Config, Interpolator};
+    /// # use libchinese_core::engine::{SyllableParser, SyllableType};
+    /// # struct DummyParser;
+    /// # struct DummySyllable(String);
+    /// # impl SyllableType for DummySyllable {
+    /// #     fn text(&self) -> &str { &self.0 }
+    /// #     fn is_fuzzy(&self) -> bool { false }
+    /// # }
+    /// # impl SyllableParser for DummyParser {
+    /// #     type Syllable = DummySyllable;
+    /// #     fn segment_top_k(&self, _: &str, _: usize, _: bool) -> Vec<Vec<Self::Syllable>> { vec![] }
+    /// # }
+    /// # let model = Model::new(
+    /// #     Lexicon::new(),
+    /// #     NGramModel::new(),
+    /// #     UserDict::new(":memory:").unwrap(),
+    /// #     Config::default(),
+    /// #     Interpolator::new(),
+    /// # );
+    /// # let engine = Engine::new(model, DummyParser, vec![]);
+    /// // User selects a phrase
+    /// let candidates = engine.input("nihao");
+    /// let selected = &candidates[0].text;
+    ///
+    /// // Record the selection for learning
+    /// engine.commit(selected);
+    /// ```
+    pub fn commit(&self, phrase: &str) {
+        // Learn the phrase in the user dictionary (increments frequency by 1)
+        self.model.userdict.learn(phrase);
+        
+        // Clear cache so updated frequencies are reflected immediately
+        self.clear_cache();
+    }
+    
     /// Generate all fuzzy key alternatives for a syllable segmentation.
     ///
     /// Returns a Vec where the first element is the original key,

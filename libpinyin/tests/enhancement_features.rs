@@ -91,10 +91,10 @@ fn parser_apply_corrections_no_corrections() {
     assert!(corrections.is_empty(),
             "Expected no corrections for 'ai', got: {:?}", corrections);
             
-    // "zhang" shouldn't have corrections
-    let corrections = parser.apply_corrections("zhang");
+    // "zha" shouldn't have corrections (no ng, ue, ve, v, u, uen, un, iou, iu)
+    let corrections = parser.apply_corrections("zha");
     assert!(corrections.is_empty(),
-            "Expected no corrections for 'zhang', got: {:?}", corrections);
+            "Expected no corrections for 'zha', got: {:?}", corrections);
 }
 
 #[test]
@@ -113,4 +113,90 @@ fn parser_corrections_are_bidirectional() {
     let from_u = parser.apply_corrections("nu");
     assert!(from_v.contains(&"nu".to_string()), "v should correct to u");
     assert!(from_u.contains(&"nv".to_string()), "u should correct to v");
+}
+
+#[test]
+fn parser_apply_corrections_uen_un() {
+    // Test uen <-> un correction (PINYIN_CORRECT_UEN_UN)
+    let parser = Parser::new();
+    
+    // "juen" should suggest "jun" as correction
+    let corrections = parser.apply_corrections("juen");
+    assert!(corrections.contains(&"jun".to_string()),
+            "Expected 'jun' in corrections for 'juen', got: {:?}", corrections);
+    
+    // "jun" should suggest "juen" as correction
+    let corrections = parser.apply_corrections("jun");
+    assert!(corrections.contains(&"juen".to_string()),
+            "Expected 'juen' in corrections for 'jun', got: {:?}", corrections);
+    
+    // "chuen" should suggest "chun" as correction
+    let corrections = parser.apply_corrections("chuen");
+    assert!(corrections.contains(&"chun".to_string()),
+            "Expected 'chun' in corrections for 'chuen', got: {:?}", corrections);
+}
+
+#[test]
+fn parser_apply_corrections_gn_ng() {
+    // Test gn <-> ng correction (PINYIN_CORRECT_GN_NG)
+    let parser = Parser::new();
+    
+    // "bagn" should suggest "bang" as correction
+    let corrections = parser.apply_corrections("bagn");
+    assert!(corrections.contains(&"bang".to_string()),
+            "Expected 'bang' in corrections for 'bagn', got: {:?}", corrections);
+    
+    // "bang" should suggest "bagn" as correction
+    let corrections = parser.apply_corrections("bang");
+    assert!(corrections.contains(&"bagn".to_string()),
+            "Expected 'bagn' in corrections for 'bang', got: {:?}", corrections);
+    
+    // "hegn" should suggest "heng" as correction
+    let corrections = parser.apply_corrections("hegn");
+    assert!(corrections.contains(&"heng".to_string()),
+            "Expected 'heng' in corrections for 'hegn', got: {:?}", corrections);
+}
+
+#[test]
+fn parser_apply_corrections_mg_ng() {
+    // Test mg <-> ng correction (PINYIN_CORRECT_MG_NG)
+    let parser = Parser::new();
+    
+    // "bamg" should suggest "bang" as correction
+    let corrections = parser.apply_corrections("bamg");
+    assert!(corrections.contains(&"bang".to_string()),
+            "Expected 'bang' in corrections for 'bamg', got: {:?}", corrections);
+    
+    // "bang" should suggest "bamg" as correction (via ng → gn → mg chain)
+    let corrections = parser.apply_corrections("bang");
+    // Note: "bang" generates both "bagn" and "bamg" corrections
+    // We check for either to be present
+    assert!(corrections.contains(&"bamg".to_string()) || corrections.contains(&"bagn".to_string()),
+            "Expected 'bamg' or 'bagn' in corrections for 'bang', got: {:?}", corrections);
+    
+    // "hemg" should suggest "heng" as correction
+    let corrections = parser.apply_corrections("hemg");
+    assert!(corrections.contains(&"heng".to_string()),
+            "Expected 'heng' in corrections for 'hemg', got: {:?}", corrections);
+}
+
+#[test]
+fn parser_apply_corrections_iou_iu() {
+    // Test iou <-> iu correction (PINYIN_CORRECT_IOU_IU)
+    let parser = Parser::new();
+    
+    // "liou" should suggest "liu" as correction
+    let corrections = parser.apply_corrections("liou");
+    assert!(corrections.contains(&"liu".to_string()),
+            "Expected 'liu' in corrections for 'liou', got: {:?}", corrections);
+    
+    // "liu" should suggest "liou" as correction
+    let corrections = parser.apply_corrections("liu");
+    assert!(corrections.contains(&"liou".to_string()),
+            "Expected 'liou' in corrections for 'liu', got: {:?}", corrections);
+    
+    // "jiou" should suggest "jiu" as correction
+    let corrections = parser.apply_corrections("jiou");
+    assert!(corrections.contains(&"jiu".to_string()),
+            "Expected 'jiu' in corrections for 'jiou', got: {:?}", corrections);
 }

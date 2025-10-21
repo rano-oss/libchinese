@@ -45,13 +45,17 @@ fn parity_ngram_scoring_example() {
     // Use interpolation weights that favor bigram like upstream examples.
     // The core API expects a Config reference for interpolation weights.
     let cfg = Config {
-        fuzzy: Vec::new(),
+        fuzzy: vec![],
         unigram_weight: 0.3,
         bigram_weight: 0.6,
         trigram_weight: 0.1,
         allow_incomplete: true,
         correct_ue_ve: true,
         correct_v_u: true,
+        correct_uen_un: true,
+        correct_gn_ng: true,
+        correct_mg_ng: true,
+        correct_iou_iu: true,
     };
     let score = m.score_sequence(&tokens, &cfg);
 

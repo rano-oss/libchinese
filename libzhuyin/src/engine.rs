@@ -149,6 +149,24 @@ impl Engine {
         self.inner.clear_cache();
     }
 
+    /// Commit a phrase to the user dictionary (learning).
+    ///
+    /// This increases the frequency/score for the given phrase, allowing the
+    /// IME to learn user preferences over time.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use libzhuyin::Engine;
+    /// # let mut engine = Engine::from_data_dir("data").unwrap();
+    /// let candidates = engine.input("ㄋㄧㄏㄠ");
+    /// if let Some(selected) = candidates.first() {
+    ///     engine.commit(&selected.text);
+    /// }
+    /// ```
+    pub fn commit(&self, phrase: &str) {
+        self.inner.commit(phrase);
+    }
+
     /// Main input API. Returns ranked `Candidate` items for the given raw zhuyin input.
     ///
     /// Delegates to core::Engine which handles:
