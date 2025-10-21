@@ -24,10 +24,12 @@
 // Re-export the language-specific modules.
 pub mod parser;
 pub mod engine;
+pub mod double_pinyin;
 
 // Convenience re-exports for common types used by callers.
 pub use engine::Engine;
 pub use parser::{Parser, Syllable};
+pub use double_pinyin::{DoublePinyinScheme, DoublePinyinSchemeData, get_scheme_data};
 
 /// Configuration for standard pinyin fuzzy matching rules.
 ///

@@ -82,6 +82,61 @@ pub struct Config {
     pub correct_mg_ng: bool,
     /// Correct iou/iu confusion (e.g., "liou" ↔ "liu") - PINYIN_CORRECT_IOU_IU
     pub correct_iou_iu: bool,
+    
+    // Zhuyin/Bopomofo corrections
+    /// Allow incomplete zhuyin syllables (e.g., "ㄋ" → matches "ㄋㄧ", "ㄋㄚ") - ZHUYIN_INCOMPLETE
+    pub zhuyin_incomplete: bool,
+    /// Correct medial/final order errors (e.g., "ㄌㄨㄟ" ↔ "ㄌㄩㄟ") - ZHUYIN_CORRECT_SHUFFLE
+    pub zhuyin_correct_shuffle: bool,
+    /// HSU keyboard layout corrections - ZHUYIN_CORRECT_HSU
+    pub zhuyin_correct_hsu: bool,
+    /// ETEN26 keyboard layout corrections - ZHUYIN_CORRECT_ETEN26
+    pub zhuyin_correct_eten26: bool,
+    
+    // Double Pinyin (Shuangpin) scheme selection
+    /// Double pinyin scheme for alternative input method. None = standard full pinyin.
+    /// Popular schemes: Microsoft (most common), ZiRanMa, ZiGuang, ABC, XiaoHe, PinYinPlusPlus
+    pub double_pinyin_scheme: Option<String>,
+    
+    // Advanced Ranking Options (similar to upstream libpinyin sort_option_t)
+    /// Sort candidates by phrase length (prefer shorter phrases)
+    pub sort_by_phrase_length: bool,
+    /// Sort candidates by pinyin length (prefer shorter pinyin)
+    pub sort_by_pinyin_length: bool,
+    /// Filter out candidates longer than input
+    pub sort_without_longer_candidate: bool,
+}
+
+/// Sort options for candidate ranking (bitflags-style, similar to upstream)
+///
+/// Upstream libpinyin uses sort_option_t enum with bitflag values:
+/// - SORT_BY_PHRASE_LENGTH: Prefer shorter phrases
+/// - SORT_BY_PINYIN_LENGTH: Prefer shorter pinyin representations  
+/// - SORT_WITHOUT_LONGER_CANDIDATE: Filter phrases longer than input
+///
+/// These can be combined to create custom sorting strategies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SortOption {
+    /// No special sorting (score only)
+    None,
+    /// Prefer shorter phrases
+    ByPhraseLength,
+    /// Prefer shorter pinyin
+    ByPinyinLength,
+    /// Exclude candidates longer than input
+    WithoutLongerCandidate,
+}
+
+impl SortOption {
+    /// Check if this sort option should filter by phrase length
+    pub fn filters_by_length(&self) -> bool {
+        matches!(self, SortOption::WithoutLongerCandidate)
+    }
+    
+    /// Check if this sort option affects sorting order
+    pub fn affects_sort_order(&self) -> bool {
+        matches!(self, SortOption::ByPhraseLength | SortOption::ByPinyinLength)
+    }
 }
 
 impl Default for Config {
@@ -112,6 +167,17 @@ impl Default for Config {
             correct_gn_ng: true,     // Common typing mistakes (NEW)
             correct_mg_ng: true,     // Common typing mistakes (NEW)
             correct_iou_iu: true,    // Common typing mistakes (NEW)
+            // Zhuyin corrections - enable by default for better UX
+            zhuyin_incomplete: true,        // Allow partial bopomofo input
+            zhuyin_correct_shuffle: true,   // Correct medial/final order errors
+            zhuyin_correct_hsu: true,       // HSU keyboard corrections
+            zhuyin_correct_eten26: true,    // ETEN26 keyboard corrections
+            // Double pinyin - None by default (standard full pinyin)
+            double_pinyin_scheme: None,
+            // Advanced ranking - disabled by default (score-only sorting)
+            sort_by_phrase_length: false,
+            sort_by_pinyin_length: false,
+            sort_without_longer_candidate: false,
             trigram_weight: 0.1,
         }
     }

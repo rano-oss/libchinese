@@ -546,6 +546,14 @@ mod tests {
             correct_gn_ng: true,
             correct_mg_ng: true,
             correct_iou_iu: true,
+            zhuyin_incomplete: true,
+            zhuyin_correct_shuffle: true,
+            zhuyin_correct_hsu: true,
+            zhuyin_correct_eten26: true,
+            double_pinyin_scheme: None,
+            sort_by_phrase_length: false,
+            sort_by_pinyin_length: false,
+            sort_without_longer_candidate: false,
         };
         let score = m.score_sequence(&tokens, &cfg);
 

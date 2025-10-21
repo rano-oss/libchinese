@@ -99,6 +99,96 @@ impl Parser {
             .collect()
     }
 
+    /// Convert double pinyin (shuangpin) input to full pinyin using the specified scheme.
+    ///
+    /// Processes input in 2-character chunks, converting each to a full pinyin syllable.
+    /// Falls back to single-character and special cases when needed.
+    ///
+    /// # Arguments
+    /// * `input` - The double pinyin input string (e.g., "uihn" for "shuang")
+    /// * `scheme_name` - The scheme name ("Microsoft", "ZiRanMa", etc.)
+    ///
+    /// # Returns
+    /// * `Some(String)` - The converted full pinyin string
+    /// * `None` - If conversion fails (invalid scheme or invalid input)
+    pub fn convert_double_pinyin(&self, input: &str, scheme_name: &str) -> Option<String> {
+        use crate::double_pinyin::DoublePinyinScheme;
+        
+        // Parse scheme name
+        let scheme = match scheme_name.to_lowercase().as_str() {
+            "microsoft" => DoublePinyinScheme::Microsoft,
+            "ziranma" => DoublePinyinScheme::ZiRanMa,
+            "ziguang" => DoublePinyinScheme::ZiGuang,
+            "abc" => DoublePinyinScheme::ABC,
+            "xiaohe" => DoublePinyinScheme::XiaoHe,
+            "pinyinplusplus" => DoublePinyinScheme::PinYinPlusPlus,
+            _ => return None,
+        };
+        
+        // Process input: split by non-alphanumeric (punctuation, spaces)
+        let mut result = String::new();
+        let mut current_word = String::new();
+        
+        for ch in input.chars() {
+            if ch.is_ascii_alphanumeric() {
+                current_word.push(ch);
+            } else {
+                // Convert accumulated word
+                if !current_word.is_empty() {
+                    // Convert double pinyin to full pinyin
+                    let converted = Self::convert_double_pinyin_word(&current_word, &scheme)?;
+                    result.push_str(&converted);
+                    current_word.clear();
+                }
+                // Pass through non-alphanumeric characters
+                result.push(ch);
+            }
+        }
+        
+        // Convert remaining word
+        if !current_word.is_empty() {
+            let converted = Self::convert_double_pinyin_word(&current_word, &scheme)?;
+            result.push_str(&converted);
+        }
+        
+        Some(result)
+    }
+
+    /// Convert a single double pinyin word to full pinyin.
+    ///
+    /// Processes input in 2-character chunks. Handles odd-length input by
+    /// processing the last character separately.
+    fn convert_double_pinyin_word(word: &str, scheme: &crate::double_pinyin::DoublePinyinScheme) -> Option<String> {
+        use crate::double_pinyin::{double_to_full_pinyin, get_scheme_data};
+        
+        let scheme_data = get_scheme_data(scheme);
+        let chars: Vec<char> = word.chars().collect();
+        let mut result = String::new();
+        let mut i = 0;
+        
+        while i < chars.len() {
+            if i + 1 < chars.len() {
+                // Try 2-char conversion
+                let first = chars[i];
+                let second = chars[i + 1];
+                if let Some(full) = double_to_full_pinyin(first, second, &scheme_data) {
+                    result.push_str(&full);
+                    i += 2;
+                } else {
+                    // Single char fallthrough
+                    result.push(chars[i]);
+                    i += 1;
+                }
+            } else {
+                // Last char, just pass through
+                result.push(chars[i]);
+                i += 1;
+            }
+        }
+        
+        Some(result)
+    }
+
     /// Perform segmentation on `input` and return the single-best segmentation.
     ///
     /// This implements a DP with tie-breaking rules inspired by upstream
@@ -110,7 +200,51 @@ impl Parser {
     ///
     /// Returns a vector of syllable strings (in order). Each syllable is a
     /// normalized token (lowercase).
+    ///
+    /// For double pinyin support, use `segment_with_scheme` instead.
     pub fn segment_best(&self, input: &str, allow_fuzzy: bool) -> Vec<Syllable> {
+        self.segment_with_scheme(input, allow_fuzzy, None)
+    }
+
+    /// Perform segmentation with optional double pinyin scheme conversion.
+    ///
+    /// # Arguments
+    /// * `input` - The input string (full pinyin or double pinyin)
+    /// * `allow_fuzzy` - Whether to allow fuzzy matching
+    /// * `scheme_name` - Optional double pinyin scheme name (e.g., "Microsoft", "ZiRanMa")
+    ///
+    /// If `scheme_name` is Some, the input will first be converted from double pinyin
+    /// to full pinyin before segmentation. If conversion fails, it falls back to
+    /// treating the input as standard pinyin.
+    pub fn segment_with_scheme(
+        &self,
+        input: &str,
+        allow_fuzzy: bool,
+        scheme_name: Option<&str>,
+    ) -> Vec<Syllable> {
+        // If double pinyin scheme specified, try to convert
+        let processed_input = if let Some(scheme) = scheme_name {
+            // Try to convert double pinyin to full pinyin
+            match self.convert_double_pinyin(input, scheme) {
+                Some(converted) => converted,
+                None => {
+                    // Conversion failed, fall back to original input
+                    input.to_string()
+                }
+            }
+        } else {
+            input.to_string()
+        };
+
+        // Now perform standard segmentation on the processed input
+        self.segment_best_internal(&processed_input, allow_fuzzy)
+    }
+
+    /// Internal segmentation method that does the actual DP work.
+    ///
+    /// This is separated out so that both segment_best and segment_with_scheme
+    /// can use the same logic.
+    fn segment_best_internal(&self, input: &str, allow_fuzzy: bool) -> Vec<Syllable> {
         // Normalize input: lowercase and remove whitespace
         let normalized: Vec<char> = input
             .to_ascii_lowercase()
@@ -542,7 +676,41 @@ impl Parser {
     /// The implementation is intentionally conservative and correctness-first:
     /// it favors clarity and parity with `segment_best`'s cost model while
     /// producing up to `k` distinct segmentation hypotheses.
+    ///
+    /// For double pinyin support, use `segment_top_k_with_scheme` instead.
     pub fn segment_top_k(&self, input: &str, k: usize, allow_fuzzy: bool) -> Vec<Vec<Syllable>> {
+        self.segment_top_k_with_scheme(input, k, allow_fuzzy, None)
+    }
+
+    /// Perform beam search segmentation with optional double pinyin scheme conversion.
+    ///
+    /// # Arguments
+    /// * `input` - The input string (full pinyin or double pinyin)
+    /// * `k` - Number of top segmentations to return
+    /// * `allow_fuzzy` - Whether to allow fuzzy matching
+    /// * `scheme_name` - Optional double pinyin scheme name
+    ///
+    /// If `scheme_name` is Some, converts double pinyin to full pinyin first.
+    pub fn segment_top_k_with_scheme(
+        &self,
+        input: &str,
+        k: usize,
+        allow_fuzzy: bool,
+        scheme_name: Option<&str>,
+    ) -> Vec<Vec<Syllable>> {
+        // If double pinyin scheme specified, try to convert
+        let processed_input = if let Some(scheme) = scheme_name {
+            self.convert_double_pinyin(input, scheme)
+                .unwrap_or_else(|| input.to_string())
+        } else {
+            input.to_string()
+        };
+
+        self.segment_top_k_internal(&processed_input, k, allow_fuzzy)
+    }
+
+    /// Internal beam search method that does the actual work.
+    fn segment_top_k_internal(&self, input: &str, k: usize, allow_fuzzy: bool) -> Vec<Vec<Syllable>> {
         // Normalize input: lowercase and remove whitespace (same as segment_best)
         let normalized: Vec<char> = input
             .to_ascii_lowercase()
@@ -693,7 +861,7 @@ impl Parser {
 
         // If no completed segmentation was found, fall back to best single segmentation
         if completed.is_empty() {
-            return vec![self.segment_best(input, allow_fuzzy)];
+            return vec![self.segment_best_internal(input, allow_fuzzy)];
         }
 
         // Sort completed states and return top-k token sequences

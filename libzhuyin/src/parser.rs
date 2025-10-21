@@ -100,6 +100,63 @@ impl ZhuyinParser {
         }
     }
 
+    /// Apply zhuyin corrections to a string.
+    /// Returns corrected alternatives (similar to pinyin corrections).
+    /// 
+    /// Corrections (from libpinyin's ZHUYIN_* flags):
+    /// - SHUFFLE: medial/final order corrections (e.g., ㄨㄟ ↔ ㄩㄟ)
+    /// - HSU: HSU keyboard layout corrections (ㄓ/ㄐ, ㄔ/ㄑ, ㄕ/ㄒ)
+    /// - ETEN26: ETEN26 keyboard layout corrections (ㄓ/ㄗ, ㄔ/ㄘ, ㄕ/ㄙ)
+    pub fn apply_corrections(&self, s: &str) -> Vec<String> {
+        let mut results = Vec::new();
+        
+        // ZHUYIN_CORRECT_SHUFFLE: medial/final order corrections
+        // ㄨㄟ <-> ㄩㄟ (u-final vs ü-final confusion)
+        if s.contains("ㄨㄟ") {
+            results.push(s.replace("ㄨㄟ", "ㄩㄟ"));
+        }
+        if s.contains("ㄩㄟ") {
+            results.push(s.replace("ㄩㄟ", "ㄨㄟ"));
+        }
+        
+        // ㄨㄣ <-> ㄩㄣ correction  
+        if s.contains("ㄨㄣ") {
+            results.push(s.replace("ㄨㄣ", "ㄩㄣ"));
+        }
+        if s.contains("ㄩㄣ") {
+            results.push(s.replace("ㄩㄣ", "ㄨㄣ"));
+        }
+        
+        // ZHUYIN_CORRECT_HSU: HSU keyboard layout corrections
+        // ㄓ/ㄐ, ㄔ/ㄑ, ㄕ/ㄒ confusion (HSU maps these to same keys)
+        let hsu_pairs = vec![
+            ("ㄓ", "ㄐ"), ("ㄐ", "ㄓ"),
+            ("ㄔ", "ㄑ"), ("ㄑ", "ㄔ"),
+            ("ㄕ", "ㄒ"), ("ㄒ", "ㄕ"),
+        ];
+        
+        for (from, to) in hsu_pairs {
+            if s.contains(from) {
+                results.push(s.replace(from, to));
+            }
+        }
+        
+        // ZHUYIN_CORRECT_ETEN26: ETEN26 keyboard layout corrections
+        // ㄓ/ㄗ, ㄔ/ㄘ, ㄕ/ㄙ confusion (ETEN26-specific errors)
+        let eten_pairs = vec![
+            ("ㄓ", "ㄗ"), ("ㄗ", "ㄓ"),
+            ("ㄔ", "ㄘ"), ("ㄘ", "ㄔ"),
+            ("ㄕ", "ㄙ"), ("ㄙ", "ㄕ"),
+        ];
+        
+        for (from, to) in eten_pairs {
+            if s.contains(from) {
+                results.push(s.replace(from, to));
+            }
+        }
+        
+        results
+    }
 
 
     /// Best segmentation using dynamic programming.
@@ -147,6 +204,24 @@ impl ZhuyinParser {
                         break;
                     }
                     let substr: String = chars[pos..pos + len].iter().collect();
+                    
+                    // Try zhuyin corrections first (shuffle, HSU, ETEN26) - lower penalty than fuzzy
+                    let corrections = self.apply_corrections(&substr);
+                    for corrected in corrections {
+                        if self.trie.contains_word(&corrected) && corrected != substr {
+                            let end = pos + len;
+                            if end <= n && !dp_cost[end].is_infinite() {
+                                let seg_cost = 200.0; // Correction penalty
+                                let cand = seg_cost + dp_cost[end];
+                                if cand < dp_cost[pos] {
+                                    dp_cost[pos] = cand;
+                                    dp_choice[pos] = Some((end, corrected.clone(), false));
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Then try fuzzy alternatives
                     let alts = self.fuzzy.alternatives(&substr);
                     for (alt, penalty) in alts.into_iter() {
                         if self.trie.contains_word(&alt) {

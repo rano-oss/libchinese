@@ -122,11 +122,13 @@ impl<P: SyllableParser> Engine<P> {
 
         // Collect, sort and return top results
         let mut vec: Vec<Candidate> = best.into_values().collect();
-        vec.sort_by(|a, b| {
-            b.score
-                .partial_cmp(&a.score)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
+        
+        // Apply advanced ranking options from config
+        vec = self.apply_advanced_ranking(vec, input);
+        
+        // Final sort by score (primary key) and phrase length (secondary, if enabled)
+        self.sort_candidates(&mut vec);
+        
         if vec.len() > self.limit {
             vec.truncate(self.limit);
         }
@@ -140,6 +142,68 @@ impl<P: SyllableParser> Engine<P> {
         cache.insert(input.to_string(), vec.clone());
 
         vec
+    }
+    
+    /// Apply advanced ranking options based on Config settings.
+    ///
+    /// Implements upstream libpinyin sort_option_t behavior:
+    /// - SORT_BY_PHRASE_LENGTH: Prefer shorter phrases (adjusts score)
+    /// - SORT_BY_PINYIN_LENGTH: Prefer shorter pinyin (adjusts score)
+    /// - SORT_WITHOUT_LONGER_CANDIDATE: Filter out phrases longer than input
+    fn apply_advanced_ranking(&self, mut candidates: Vec<Candidate>, input: &str) -> Vec<Candidate> {
+        let cfg = &self.model.config;
+        
+        // Filter: Remove candidates longer than input
+        if cfg.sort_without_longer_candidate {
+            let input_char_count = input.chars().count();
+            candidates.retain(|c| {
+                let phrase_char_count = c.text.chars().count();
+                phrase_char_count <= input_char_count
+            });
+        }
+        
+        // Adjust scores based on length preferences
+        if cfg.sort_by_phrase_length || cfg.sort_by_pinyin_length {
+            for cand in candidates.iter_mut() {
+                let phrase_len = cand.text.chars().count();
+                
+                // Apply phrase length penalty (longer = lower score)
+                if cfg.sort_by_phrase_length {
+                    // Penalize each extra character beyond 1
+                    let length_penalty = (phrase_len.saturating_sub(1)) as f32 * 0.5;
+                    cand.score -= length_penalty;
+                }
+                
+                // Apply pinyin length penalty
+                // Note: In full implementation, this would use the actual pinyin length
+                // For now, we approximate with phrase length as a proxy
+                if cfg.sort_by_pinyin_length {
+                    let pinyin_len_estimate = phrase_len; // Simplified
+                    let length_penalty = (pinyin_len_estimate.saturating_sub(1)) as f32 * 0.3;
+                    cand.score -= length_penalty;
+                }
+            }
+        }
+        
+        candidates
+    }
+    
+    /// Sort candidates by score (primary) and optionally by phrase length (secondary).
+    fn sort_candidates(&self, candidates: &mut [Candidate]) {
+        let sort_by_length = self.model.config.sort_by_phrase_length || self.model.config.sort_by_pinyin_length;
+        
+        candidates.sort_by(|a, b| {
+            // Primary: score (higher is better)
+            match b.score.partial_cmp(&a.score) {
+                Some(std::cmp::Ordering::Equal) if sort_by_length => {
+                    // Secondary: phrase length (shorter is better)
+                    let a_len = a.text.chars().count();
+                    let b_len = b.text.chars().count();
+                    a_len.cmp(&b_len)
+                }
+                ordering => ordering.unwrap_or(std::cmp::Ordering::Equal),
+            }
+        });
     }
     
     /// Commit a phrase to user learning.
