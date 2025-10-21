@@ -263,3 +263,23 @@ mod tests {
         assert_eq!(texts, vec!["ㄋㄧ".to_string(), "X".to_string()]);
     }
 }
+
+// Implement core::SyllableType for ZhuyinSyllable
+impl libchinese_core::SyllableType for ZhuyinSyllable {
+    fn text(&self) -> &str {
+        &self.text
+    }
+    
+    fn is_fuzzy(&self) -> bool {
+        self.fuzzy
+    }
+}
+
+// Implement core::SyllableParser for ZhuyinParser
+impl libchinese_core::SyllableParser for ZhuyinParser {
+    type Syllable = ZhuyinSyllable;
+    
+    fn segment_top_k(&self, input: &str, k: usize, allow_fuzzy: bool) -> Vec<Vec<Self::Syllable>> {
+        self.segment_top_k(input, k, allow_fuzzy)
+    }
+}

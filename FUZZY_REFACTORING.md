@@ -17,6 +17,3 @@
 2. Implement `PinyinParser::parse()` using dynamic programming
 3. Update `Engine::input()` to use parser before lexicon lookup
 4. Keep existing FST data with apostrophes (no regeneration needed!)
-
-## TODOS before completion:
-2. Engine can probably be merged(same for pinyin and zhuyin) as well, should be fairly similar in behavior, just data and parser that is different. 

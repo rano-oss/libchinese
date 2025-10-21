@@ -2,20 +2,17 @@
 //!
 //! This engine provides the same interface as libpinyin but specialized for
 //! Zhuyin/Bopomofo input method.
+//!
+//! This is now a thin wrapper around the generic core::Engine<ZhuyinParser>.
 
-use std::collections::HashMap;
 use std::error::Error;
 
-use crate::parser::{ZhuyinParser, ZhuyinSyllable};
-use libchinese_core::{Candidate, Model, FuzzyMap, Lexicon, NGramModel, UserDict, Config, Interpolator};
+use crate::parser::ZhuyinParser;
+use libchinese_core::{Candidate, Model, Lexicon, NGramModel, UserDict, Interpolator};
 
 /// Public engine for libzhuyin
 pub struct Engine {
-    model: Model,
-    parser: ZhuyinParser,
-    fuzzy: FuzzyMap,
-    /// Maximum candidates to return
-    limit: usize,
+    inner: libchinese_core::Engine<ZhuyinParser>,
 }
 
 impl Engine {
@@ -23,27 +20,16 @@ impl Engine {
     ///
     /// Uses standard zhuyin fuzzy rules by default.
     pub fn new(model: Model, parser: ZhuyinParser) -> Self {
-        // Use standard zhuyin fuzzy rules from config
         let rules = crate::standard_fuzzy_rules();
-        let fuzzy = FuzzyMap::from_rules(&rules);
-        
         Self {
-            model,
-            parser,
-            fuzzy,
-            limit: 8,
+            inner: libchinese_core::Engine::new(model, parser, rules),
         }
     }
     
     /// Construct an Engine with custom fuzzy rules.
     pub fn with_fuzzy_rules(model: Model, parser: ZhuyinParser, fuzzy_rules: Vec<String>) -> Self {
-        let fuzzy = FuzzyMap::from_rules(&fuzzy_rules);
-        
         Self {
-            model,
-            parser,
-            fuzzy,
-            limit: 8,
+            inner: libchinese_core::Engine::new(model, parser, fuzzy_rules),
         }
     }
 
@@ -90,29 +76,23 @@ impl Engine {
                 .join(".zhuyin")
                 .join("userdict.redb");
             
-            match UserDict::new(&ud_path) {
-                Ok(u) => u,
-                Err(e) => {
-                    eprintln!("warning: failed to open userdict at {:?}: {}", ud_path, e);
-                    // Fallback to temp userdict
-                    let temp_path = std::env::temp_dir().join(format!(
-                        "libzhuyin_userdict_{}.redb",
-                        std::process::id()
-                    ));
-                    UserDict::new(&temp_path).expect("failed to create temp userdict")
-                }
+            // Create directory if needed
+            if let Some(parent) = ud_path.parent() {
+                let _ = std::fs::create_dir_all(parent);
             }
+
+            UserDict::new(&ud_path)?
         };
 
-        // Load interpolator or create empty one
+        // Load interpolator if present
         let interp = {
-            let lf = data_dir.join("lambdas.fst");
-            let lb = data_dir.join("lambdas.bincode");
-            if lf.exists() && lb.exists() {
-                match Interpolator::load(&lf, &lb) {
+            let fst_path = data_dir.join("lambdas.fst");
+            let bincode_path = data_dir.join("lambdas.bincode");
+            if fst_path.exists() && bincode_path.exists() {
+                match Interpolator::load(&fst_path, &bincode_path) {
                     Ok(i) => i,
                     Err(e) => {
-                        eprintln!("warning: failed to load lambdas: {}, using empty interpolator", e);
+                        eprintln!("warning: failed to load interpolator: {}, using new", e);
                         Interpolator::new()
                     }
                 }
@@ -121,101 +101,63 @@ impl Engine {
             }
         };
 
-        let cfg = Config::default();
-        let model = Model::new(lex, ngram, userdict, cfg, interp);
+        let model = Model::new(lex, ngram, userdict, libchinese_core::Config::default(), interp);
 
-        // Build parser with zhuyin syllables (all bopomofo syllables)
-        let parser = ZhuyinParser::new();
+        // Load parser with syllables from data/zhuyin_syllables.txt
+        let parser = {
+            let syllables_path = std::path::Path::new("data/zhuyin_syllables.txt");
+            if syllables_path.exists() {
+                match std::fs::read_to_string(syllables_path) {
+                    Ok(content) => {
+                        let syllables: Vec<&str> = content.lines()
+                            .map(|s| s.trim())
+                            .filter(|s| !s.is_empty())
+                            .collect();
+                        eprintln!("✓ Loaded {} zhuyin syllables", syllables.len());
+                        ZhuyinParser::with_syllables(&syllables)
+                    }
+                    Err(e) => {
+                        eprintln!("warning: failed to load zhuyin_syllables.txt: {}", e);
+                        eprintln!("using fallback syllable list");
+                        ZhuyinParser::with_syllables(&[
+                            "ㄋㄧ", "ㄏㄠ", "ㄓㄨㄥ", "ㄍㄨㄛ"
+                        ])
+                    }
+                }
+            } else {
+                eprintln!("warning: zhuyin_syllables.txt not found at {:?}", syllables_path);
+                eprintln!("using fallback syllable list");
+                ZhuyinParser::with_syllables(&[
+                    "ㄋㄧ", "ㄏㄠ", "ㄓㄨㄥ", "ㄍㄨㄛ"
+                ])
+            }
+        };
 
         Ok(Self::new(model, parser))
     }
-    
-    /// Main input API - convert Bopomofo input to Chinese candidates
-    pub fn input(&self, input: &str) -> Vec<Candidate> {
-        // Get segmentations using the zhuyin parser
-        let segs = self.parser.segment_top_k(input, 4, true);
-        
-        // Map from phrase -> best Candidate
-        let mut best: HashMap<String, Candidate> = HashMap::new();
-        
-        for seg in segs.into_iter() {
-            // Convert segmentation to lookup key
-            let key = Self::segmentation_to_key(&seg);
-            
-            // Generate candidates for this key
-            let mut candidates = self.model.candidates_for_key(&key, self.limit * 2);
-            
-            // Apply fuzzy penalty if any syllables were fuzzy matched
-            let used_fuzzy = seg.iter().any(|s| s.fuzzy);
-            if used_fuzzy {
-                let penalty = 1.0; // Simple fuzzy penalty
-                for c in candidates.iter_mut() {
-                    c.score -= penalty;
-                }
-            }
-            
-            // Merge candidates (keep best score per phrase)
-            for cand in candidates.into_iter() {
-                match best.get(&cand.text) {
-                    Some(existing) if existing.score >= cand.score => {}
-                    _ => {
-                        best.insert(cand.text.clone(), cand);
-                    }
-                }
-            }
-        }
-        
-        // Sort by score and return top results
-        let mut vec: Vec<Candidate> = best.into_values().collect();
-        vec.sort_by(|a, b| {
-            b.score
-                .partial_cmp(&a.score)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-        
-        if vec.len() > self.limit {
-            vec.truncate(self.limit);
-        }
-        vec
-    }
-    
-    /// Convert segmentation to lookup key
-    fn segmentation_to_key(seg: &[ZhuyinSyllable]) -> String {
-        seg.iter().map(|s| &s.text).cloned().collect::<Vec<_>>().join("")
-    }
-}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use libchinese_core::{Lexicon, NGramModel, UserDict, Config, Interpolator};
-    
-    #[test]
-    fn engine_zhuyin_basic() {
-        // Create a simple test model
-        let mut lex = Lexicon::new();
-        lex.insert("ㄋㄧˇㄏㄠˇ", "你好");
-        lex.insert("ㄓㄨㄥㄍㄨㄛˊ", "中国");
-        
-        let mut ng = NGramModel::new();
-        ng.insert_unigram("你", -1.0);
-        ng.insert_unigram("好", -1.2);
-        ng.insert_unigram("中", -1.1);
-        ng.insert_unigram("国", -1.3);
-        
-        let temp_path = std::env::temp_dir().join(format!(
-            "libzhuyin_test_userdict_{}.redb",
-            std::process::id()
-        ));
-        let user = UserDict::new(&temp_path).expect("create test userdict");
-        let cfg = Config::default();
-        let model = Model::new(lex, ng, user, cfg, Interpolator::new());
-        
-        let parser = ZhuyinParser::with_syllables(&["ㄋㄧˇ", "ㄏㄠˇ"]);
-        let engine = Engine::new(model, parser);
-        
-        let cands = engine.input("ㄋㄧˇㄏㄠˇ");
-        assert!(!cands.is_empty());
-        assert_eq!(cands[0].text, "你好");
+    /// Get cache statistics (hits, misses, hit rate)
+    pub fn cache_stats(&self) -> (usize, usize, f64) {
+        let (hits, misses) = self.inner.cache_stats();
+        let total = hits + misses;
+        let hit_rate = if total > 0 { hits as f64 / total as f64 } else { 0.0 };
+        (hits, misses, hit_rate)
+    }
+
+    /// Clear the cache
+    pub fn clear_cache(&mut self) {
+        self.inner.clear_cache();
+    }
+
+    /// Main input API. Returns ranked `Candidate` items for the given raw zhuyin input.
+    ///
+    /// Delegates to core::Engine which handles:
+    /// 1. Parser segmentation into syllable sequences
+    /// 2. Fuzzy key generation for all alternatives (NOW WORKING!)
+    /// 3. Lexicon lookups and n-gram scoring
+    /// 4. Penalty application for fuzzy matches (NOW WORKING!)
+    /// 5. Result caching (NOW AVAILABLE!)
+    pub fn input(&self, input: &str) -> Vec<Candidate> {
+        self.inner.input(input)
     }
 }

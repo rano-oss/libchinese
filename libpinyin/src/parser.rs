@@ -613,3 +613,23 @@ mod tests {
         assert!(alts2.iter().any(|(alt, _)| alt == "zh"));
     }
 }
+
+// Implement core::SyllableType for Syllable
+impl libchinese_core::SyllableType for Syllable {
+    fn text(&self) -> &str {
+        &self.text
+    }
+    
+    fn is_fuzzy(&self) -> bool {
+        self.fuzzy
+    }
+}
+
+// Implement core::SyllableParser for Parser
+impl libchinese_core::SyllableParser for Parser {
+    type Syllable = Syllable;
+    
+    fn segment_top_k(&self, input: &str, k: usize, allow_fuzzy: bool) -> Vec<Vec<Self::Syllable>> {
+        self.segment_top_k(input, k, allow_fuzzy)
+    }
+}

@@ -53,8 +53,9 @@ fn build_model() -> Result<Model, Box<dyn std::error::Error>> {
     // Load interpolator or create empty one
     let lambdas_fst = data_dir.join("lambdas.fst");
     let lambdas_bincode = data_dir.join("lambdas.bincode");
-    let interp = Interpolator::load(&lambdas_fst, &lambdas_bincode).expect(|e| {
+    let interp = Interpolator::load(&lambdas_fst, &lambdas_bincode).unwrap_or_else(|e| {
         eprintln!("⚠ Failed to load interpolator: {}", e);
+        Interpolator::new()
     });
 
     let cfg = Config::default();
