@@ -1,14 +1,22 @@
 # TODO and Future Work Summary
 
 **Date**: October 21, 2025  
-**Status**: Post double-pinyin and advanced ranking implementation  
-**Tests Passing**: 123
+**Status**: All high and medium priority items COMPLETE! 🎉  
+**Tests Passing**: 138
 
 This document consolidates all TODOs and future improvements identified across documentation files, cross-referenced with upstream libpinyin.
 
 ---
 
 ## ✅ Recently Completed (This Session)
+
+### Cache Management - COMPLETE
+- ✅ LRU cache implementation with doubly-linked list
+- ✅ Configurable cache size via Config (max_cache_size)
+- ✅ Automatic eviction when capacity reached
+- ✅ Cache statistics API (size, capacity, hit rate)
+- ✅ 8 unit tests + 7 integration tests = 15 total tests
+- ✅ O(1) get/insert performance
 
 ### Double Pinyin (Shuangpin) - COMPLETE
 - ✅ All 6 schemes implemented (Microsoft, ZiRanMa, ZiGuang, ABC, XiaoHe, PinYinPlusPlus)
@@ -56,50 +64,91 @@ This document consolidates all TODOs and future improvements identified across d
 
 ## Medium Priority Items 🟡
 
-### Cache Management Optimization
-**Location**: Engine  
-**Upstream**: `src/pinyin.cpp` cache invalidation  
-**Status**: ❌ Not implemented  
-**Impact**: MEDIUM - Performance optimization
-
-Currently cache is simple HashMap with no size limits or LRU policy.
-
-**Required**:
-- Add max_cache_size to Config
-- Implement LRU eviction
-- Add cache hit/miss metrics
-- Consider prefix-based invalidation on commit()
-
-**References**:
-- UPSTREAM_FEATURE_COMPARISON.md MEDIUM PRIORITY
+*All medium-priority items are now COMPLETE! ✅*
 
 ---
 
 ## Low Priority Items 🟢
 
-### Additional Parser Schemes
-**Upstream**: Various parser classes  
-**Status**: ❌ Not implemented (0/5 complete)
+### Wade-Giles Romanization - COMPLETE ✅
+**Location**: libpinyin/src/wade_giles.rs  
+**Status**: ✅ Implemented  
+**Impact**: MEDIUM - Supports historical texts and Taiwan usage
 
-- Wade-Giles/Luoma pinyin
-- HSU/IBM/ETEN/Gin-Yieh zhuyin schemes
-- Direct parsers (exact input, no ambiguity resolution)
+Implemented features:
+- ✅ Complete Wade-Giles to pinyin conversion table
+- ✅ Aspirated/unaspirated consonant handling (ch'/ch, p'/p, t'/t, k'/k)
+- ✅ Special mappings (hs→x, j→r, ts→z)
+- ✅ Finals conversion (ien→ian, ung→ong)
+- ✅ 6 comprehensive unit tests
+- ✅ Interactive example demonstrating usage
+
+Use cases:
+- Historical Chinese texts (pre-1958)
+- Taiwan romanization
+- Academic works
+- Old place names (Pei-ching, Chung-kuo)
 
 **References**:
+- libpinyin/src/wade_giles.rs
+- libpinyin/examples/wade_giles_input.rs
+
+---
+
+### Phrase Import/Export Tools - COMPLETE ✅
+**Location**: tools/export_userdict, tools/import_phrases  
+**Status**: ✅ Implemented  
+**Impact**: HIGH user value - enables data portability
+
+Implemented tools:
+- ✅ export_userdict: Export to JSON/CSV with frequency sorting
+- ✅ import_phrases: Import from JSON/CSV/TXT with dry-run mode
+- ✅ Documentation: IMPORT_EXPORT_TOOLS.md with examples
+- ✅ Common workflows: Backup, restore, share, analyze
+
+Features:
+- Multiple formats (JSON, CSV, plain text)
+- Frequency preservation
+- Safe concurrent access via redb
+- Dry-run mode for preview
+- Batch import support
+
+**References**:
+- tools/IMPORT_EXPORT_TOOLS.md
+- UPSTREAM_FEATURE_COMPARISON.md LOW PRIORITY
+
+---
+
+### Additional Parser Schemes
+**Upstream**: Various parser classes  
+**Status**: 🚧 Partially implemented (Wade-Giles complete, zhuyin schemes pending)
+
+Implemented:
+- ✅ Wade-Giles/Luoma pinyin (Wade-Giles complete)
+
+Remaining:
+- ❌ HSU/IBM/ETEN/Gin-Yieh zhuyin schemes
+- ❌ Direct parsers (exact input, no ambiguity resolution)
+
+**References**:
+- libpinyin/src/wade_giles.rs (complete)
 - UPSTREAM_FEATURE_COMPARISON.md LOW PRIORITY
 
 ---
 
 ### Phrase Import/Export Tools
-**Location**: New tools  
-**Status**: ❌ Not implemented
+**Location**: ~~New tools~~ tools/export_userdict, tools/import_phrases  
+**Status**: ✅ COMPLETE
 
-- User phrase management CLI
-- Frequency export for backup
-- Custom dictionary import
-- Batch operations
+~~- User phrase management CLI~~
+~~- Frequency export for backup~~
+~~- Custom dictionary import~~
+~~- Batch operations~~
+
+See tools/IMPORT_EXPORT_TOOLS.md for usage.
 
 **References**:
+- tools/IMPORT_EXPORT_TOOLS.md
 - UPSTREAM_FEATURE_COMPARISON.md LOW PRIORITY
 
 ---

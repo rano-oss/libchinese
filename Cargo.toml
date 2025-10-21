@@ -5,5 +5,7 @@ members = [
     "libzhuyin",
     "tools/convert_table",
     "tools/inspect_converted",
+    "tools/export_userdict",
+    "tools/import_phrases",
 ]
 resolver = "2"

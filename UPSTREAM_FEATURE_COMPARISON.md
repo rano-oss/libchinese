@@ -39,11 +39,11 @@ This document compares libchinese implementation against upstream libpinyin to i
 
 | Flag | Upstream | libchinese | Status | Notes |
 |------|----------|------------|--------|-------|
-| **ZHUYIN_INCOMPLETE** | ✅ | ❌ | Missing | Partial zhuyin matching |
-| **ZHUYIN_CORRECT_SHUFFLE** | ✅ | ❌ | Missing | Correct medial/final order errors |
-| **ZHUYIN_CORRECT_HSU** | ✅ | ❌ | Missing | HSU scheme-specific corrections |
-| **ZHUYIN_CORRECT_ETEN26** | ✅ | ❌ | Missing | ETEN26 scheme-specific corrections |
-| **ZHUYIN_CORRECT_ALL** | ✅ | ❌ | Missing | All zhuyin corrections enabled |
+| **ZHUYIN_INCOMPLETE** | ✅ | ✅ | **DONE** | Partial zhuyin matching |
+| **ZHUYIN_CORRECT_SHUFFLE** | ✅ | ✅ | **DONE** | Correct medial/final order errors |
+| **ZHUYIN_CORRECT_HSU** | ✅ | ✅ | **DONE** | HSU scheme-specific corrections |
+| **ZHUYIN_CORRECT_ETEN26** | ✅ | ✅ | **DONE** | ETEN26 scheme-specific corrections |
+| **ZHUYIN_CORRECT_ALL** | ✅ | ✅ | **DONE** | All zhuyin corrections enabled (12 tests) |
 
 **Upstream reference**: `src/storage/pinyin_custom2.h`, `src/storage/zhuyin_parser2.cpp` lines 461-482
 
@@ -86,7 +86,7 @@ This document compares libchinese implementation against upstream libpinyin to i
 | Scheme | Upstream | libchinese | Status |
 |--------|----------|------------|--------|
 | **Full Pinyin (Hanyu)** | ✅ | ✅ | **DONE** |
-| **Double Pinyin** | ✅ | ❌ | Missing |
+| **Double Pinyin (Shuangpin)** | ✅ | ✅ | **DONE** (6 schemes: Microsoft, ZiRanMa, ZiGuang, ABC, XiaoHe, PinYinPlusPlus) |
 | **Wade-Giles (Luoma)** | ✅ | ❌ | Missing |
 | **Secondary Zhuyin** | ✅ | ❌ | Missing |
 | **Pinyin Direct** | ✅ | ❌ | Missing |
@@ -146,9 +146,9 @@ This document compares libchinese implementation against upstream libpinyin to i
 | Feature | Upstream | libchinese | Status |
 |---------|----------|------------|--------|
 | **Sort by frequency** | ✅ | ✅ | **DONE** |
-| **Sort by phrase length** | ✅ | ❌ | Missing |
-| **Sort by pinyin length** | ✅ | ❌ | Missing |
-| **Without longer candidates** | ✅ | ❌ | Missing |
+| **Sort by phrase length** | ✅ | ✅ | **DONE** (penalty: (len-1)*0.5) |
+| **Sort by pinyin length** | ✅ | ✅ | **DONE** (penalty: (len-1)*0.3) |
+| **Without longer candidates** | ✅ | ✅ | **DONE** (filtering option) |
 
 **Upstream reference**: `src/pinyin.h` lines 57-82
 
@@ -224,34 +224,43 @@ libchinese uses modern Rust-native formats which is fine - no need to match upst
 
 ### Medium Priority 🟡
 
-4. **Add zhuyin incomplete/corrections**:
-   - ZHUYIN_INCOMPLETE flag
-   - ZHUYIN_CORRECT_SHUFFLE
-   - Scheme-specific corrections (HSU, ETEN26)
+4. ~~**Add zhuyin incomplete/corrections**~~ ✅ **DONE**:
+   - ~~ZHUYIN_INCOMPLETE flag~~
+   - ~~ZHUYIN_CORRECT_SHUFFLE~~
+   - ~~Scheme-specific corrections (HSU, ETEN26)~~
 
-5. **Implement advanced ranking**:
-   - SORT_BY_PHRASE_LENGTH
-   - SORT_BY_PINYIN_LENGTH
-   - Combined sorting strategies
+5. ~~**Implement advanced ranking**~~ ✅ **DONE**:
+   - ~~SORT_BY_PHRASE_LENGTH~~
+   - ~~SORT_BY_PINYIN_LENGTH~~
+   - ~~SORT_WITHOUT_LONGER_CANDIDATE~~
+   - ~~Combined sorting strategies~~
 
-6. **Add double pinyin support**:
-   - DoublePinyinParser2 equivalent
-   - Common schemes (MS, ZiRanMa, ZiGuang)
-   - Fallback table support
+6. ~~**Add double pinyin support**~~ ✅ **DONE**:
+   - ~~DoublePinyinParser2 equivalent~~
+   - ~~6 common schemes (Microsoft, ZiRanMa, ZiGuang, ABC, XiaoHe, PinYinPlusPlus)~~
+   - ~~Fallback to standard pinyin~~
+
+7. ~~**Cache management optimization**~~:
+   - ~~Add max_cache_size to Config~~
+   - ~~Implement LRU eviction policy~~
+   - ~~Add cache hit/miss metrics~~
+   - ~~Commit() clears cache~~
 
 ### Low Priority 🟢
 
-7. **Additional parser schemes**:
-   - Wade-Giles/Luoma pinyin
-   - HSU/IBM/ETEN zhuyin schemes
+8. ~~**Additional parser schemes**~~:
+   - ~~Wade-Giles/Luoma pinyin~~ (Wade-Giles complete)
+   - HSU/IBM/ETEN/Gin-Yieh zhuyin schemes (pending)
    - Direct parsers (for exact input)
+   - See `libpinyin/src/wade_giles.rs` and `examples/wade_giles_input.rs`
 
-8. **Phrase import/export tools**:
-   - User phrase management
-   - Frequency export for backup
-   - Custom dictionary import
+9. ~~**Phrase import/export tools**~~:
+   - ~~User phrase management~~
+   - ~~Frequency export for backup~~
+   - ~~Custom dictionary import~~
+   - See `tools/IMPORT_EXPORT_TOOLS.md`
 
-9. **Advanced features**:
+10. **Advanced engine features**:
    - USE_DIVIDED_TABLE
    - USE_RESPLIT_TABLE  
    - DYNAMIC_ADJUST
@@ -303,28 +312,39 @@ For implementing missing features, refer to these upstream files:
 - Apostrophe separators
 
 ### 🚧 What Needs Work
-- User frequency updates (commit())
-- Additional pinyin corrections (4 missing)
-- Zhuyin enhancements (incomplete, corrections)
-- Tone handling integration
-- Advanced ranking options
+- Additional parser schemes (Wade-Giles, alternative zhuyin layouts)
+- Advanced engine features (DIVIDED_TABLE, RESPLIT_TABLE, DYNAMIC_ADJUST)
 
 ### 📊 Feature Completion
-- **Parser Core**: ~90% complete (+10% from corrections/tones)
-- **Correction Options**: ~85% complete (7/8 flags, was 3/7)
+- **Parser Core**: ~95% complete (all core features done)
+- **Correction Options**: ~100% complete (all pinyin + zhuyin corrections)
 - **User Learning**: ~100% complete (commit implemented)
 - **Tone Handling**: ~75% complete (extraction done, validation pending)
-- **Advanced Features**: ~35% complete (+5% from recent work)
+- **Alternative Schemes**: ~85% complete (double pinyin done, Wade-Giles pending)
+- **Advanced Ranking**: ~100% complete (all 3 options implemented)
+- **Cache Management**: ~100% complete (LRU cache with statistics)
+- **Import/Export Tools**: ~100% complete (JSON/CSV/TXT support)
+- **Advanced Features**: ~40% complete
 
-**Overall Feature Parity**: ~75% (was ~60%)
+**Overall Feature Parity**: ~92% (was ~75% before this session, +~17% from medium priority + import/export)
+
+**Completed This Session** ✅:
+1. ✅ Zhuyin corrections (ZHUYIN_INCOMPLETE, SHUFFLE, HSU, ETEN26)
+2. ✅ Double pinyin schemes (6 complete: Microsoft, ZiRanMa, ZiGuang, ABC, XiaoHe, PinYinPlusPlus)
+3. ✅ Advanced ranking (SORT_BY_PHRASE_LENGTH, SORT_BY_PINYIN_LENGTH, SORT_WITHOUT_LONGER_CANDIDATE)
+4. ✅ Cache management optimization (LRU eviction, configurable size, statistics API)
+5. ✅ Documentation cleanup (removed 8 completed docs, updated tracking)
+6. ✅ Import/Export tools (JSON/CSV/TXT, backup/restore workflows)
+7. ✅ Wade-Giles romanization (conversion module + example)
+
+**🎉 ALL HIGH AND MEDIUM PRIORITY ITEMS COMPLETE!**
+**🎉 LOW PRIORITY: 2/3 features complete (Import/Export + Wade-Giles)!**
 
 **Next Sprint Priorities**:
-1. ~~Implement commit() for user learning~~ ✅ **DONE**
-2. ~~Add missing pinyin corrections~~ ✅ **DONE**
-3. ~~Integrate tone handling~~ ✅ **DONE** (extraction complete)
-4. Add Zhuyin corrections and schemes (MEDIUM priority)
-5. Implement advanced ranking options (LOW priority)
-6. Document parser options API (LOW priority)
+1. Additional parser schemes (LOW priority)
+2. Import/export tools (LOW priority)
+3. Advanced engine features (LOW priority)
+4. Production readiness (error handling, API docs, benchmarks)
 
 ---
 

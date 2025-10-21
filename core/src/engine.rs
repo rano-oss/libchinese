@@ -33,7 +33,7 @@ pub struct Engine<P> {
     parser: P,
     fuzzy: FuzzyMap,
     limit: usize,
-    cache: RefCell<HashMap<String, Vec<Candidate>>>,
+    cache: RefCell<lru::LruCache<String, Vec<Candidate>>>,
     cache_hits: RefCell<usize>,
     cache_misses: RefCell<usize>,
 }
@@ -42,13 +42,16 @@ impl<P: SyllableParser> Engine<P> {
     /// Create a new engine with the given model, parser, and fuzzy rules.
     pub fn new(model: Model, parser: P, fuzzy_rules: Vec<String>) -> Self {
         let fuzzy = FuzzyMap::from_rules(&fuzzy_rules);
+        let cache_capacity = model.config.max_cache_size;
         
         Self {
             model,
             parser,
             fuzzy,
             limit: 8,
-            cache: RefCell::new(HashMap::new()),
+            cache: RefCell::new(lru::LruCache::new(
+                std::num::NonZeroUsize::new(cache_capacity).unwrap_or(std::num::NonZeroUsize::new(1000).unwrap())
+            )),
             cache_hits: RefCell::new(0),
             cache_misses: RefCell::new(0),
         }
@@ -66,8 +69,8 @@ impl<P: SyllableParser> Engine<P> {
     /// 4. Merge and rank candidates
     /// 5. Cache the result
     pub fn input(&self, input: &str) -> Vec<Candidate> {
-        // Check cache first
-        if let Some(cached) = self.cache.borrow().get(input) {
+        // Check cache first (LRU automatically updates access time)
+        if let Some(cached) = self.cache.borrow_mut().get(&input.to_string()) {
             *self.cache_hits.borrow_mut() += 1;
             return cached.clone();
         }
@@ -133,13 +136,8 @@ impl<P: SyllableParser> Engine<P> {
             vec.truncate(self.limit);
         }
 
-        // Cache the result
-        let cache_size_limit = 1000;
-        let mut cache = self.cache.borrow_mut();
-        if cache.len() >= cache_size_limit {
-            cache.clear();
-        }
-        cache.insert(input.to_string(), vec.clone());
+        // Cache the result (LRU automatically handles eviction)
+        self.cache.borrow_mut().put(input.to_string(), vec.clone());
 
         vec
     }
@@ -315,12 +313,41 @@ impl<P: SyllableParser> Engine<P> {
     }
     
     /// Get cache statistics for monitoring.
+    ///
+    /// Returns (hits, misses) tuple.
     pub fn cache_stats(&self) -> (usize, usize) {
         (*self.cache_hits.borrow(), *self.cache_misses.borrow())
+    }
+    
+    /// Get cache hit rate as a percentage (0.0 to 100.0).
+    ///
+    /// Returns None if no cache accesses have been made yet.
+    pub fn cache_hit_rate(&self) -> Option<f32> {
+        let hits = *self.cache_hits.borrow();
+        let misses = *self.cache_misses.borrow();
+        let total = hits + misses;
+        
+        if total == 0 {
+            None
+        } else {
+            Some((hits as f32 / total as f32) * 100.0)
+        }
+    }
+    
+    /// Get current cache size (number of entries).
+    pub fn cache_size(&self) -> usize {
+        self.cache.borrow().len()
+    }
+    
+    /// Get cache capacity (maximum entries).
+    pub fn cache_capacity(&self) -> usize {
+        self.cache.borrow().cap().get()
     }
     
     /// Clear the cache (useful for testing or memory management).
     pub fn clear_cache(&self) {
         self.cache.borrow_mut().clear();
+        *self.cache_hits.borrow_mut() = 0;
+        *self.cache_misses.borrow_mut() = 0;
     }
 }

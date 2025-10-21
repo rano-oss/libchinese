@@ -105,6 +105,12 @@ pub struct Config {
     pub sort_by_pinyin_length: bool,
     /// Filter out candidates longer than input
     pub sort_without_longer_candidate: bool,
+    
+    // Cache Management
+    /// Maximum number of entries in the input -> candidates cache.
+    /// When cache reaches this size, least-recently-used entries are evicted.
+    /// Default: 1000 entries (reasonable for most IME use cases)
+    pub max_cache_size: usize,
 }
 
 /// Sort options for candidate ranking (bitflags-style, similar to upstream)
@@ -178,6 +184,8 @@ impl Default for Config {
             sort_by_phrase_length: false,
             sort_by_pinyin_length: false,
             sort_without_longer_candidate: false,
+            // Cache management - 1000 entries is reasonable for most IME use
+            max_cache_size: 1000,
             trigram_weight: 0.1,
         }
     }

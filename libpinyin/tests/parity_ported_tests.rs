@@ -64,6 +64,7 @@ fn parity_ngram_scoring_example() {
         sort_by_phrase_length: false,
         sort_by_pinyin_length: false,
         sort_without_longer_candidate: false,
+        max_cache_size: 1000,
     };
     let score = m.score_sequence(&tokens, &cfg);
 
