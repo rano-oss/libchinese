@@ -38,14 +38,14 @@ impl Syllable {
     }
 }
 
-/// Parser providing segmentation using a trie and fuzzy rules (placeholder).
+/// Parser providing segmentation using a trie and fuzzy rules.
 ///
 /// Public entrypoints:
 /// - `Parser::insert_syllable` to seed the trie
 /// - `Parser::segment_best` to obtain the best segmentation
 ///
 /// Implementation notes:
-/// - This is a correctness-focused starter implementation. The upstream
+/// - The upstream
 ///   `pinyin_parser2.cpp` uses table-driven parsing and DP tailored for
 ///   pinyin syllable ambiguities. We will port the exact DP recurrence later.
 #[derive(Debug)]
@@ -57,7 +57,7 @@ pub struct Parser {
 impl Parser {
     /// Create an empty parser.
     pub fn new() -> Self {
-        // Use standard pinyin fuzzy rules
+        // Use comprehensive fuzzy rules with complete syllable mappings
         let rules = crate::standard_fuzzy_rules();
         Self {
             trie: TrieNode::new(),
@@ -809,22 +809,21 @@ impl Parser {
                         let alts = self.fuzzy.alternatives(&substr);
                         for (alt, penalty) in alts.into_iter() {
                             // If the alt is an exact syllable in the trie, use it as a fuzzy match
-                            if self.trie.contains_word(&alt) {
-                                // only accept substitutions that match the same length in chars
-                                if alt.chars().count() == substr.chars().count() {
-                                    let end = st.pos + len;
-                                    let mut new_tokens = st.tokens.clone();
-                                    new_tokens.push(Syllable::new(alt.clone(), true));
-                                    let new_state = State {
-                                        pos: end,
-                                        tokens: new_tokens,
-                                        cost: st.cost + penalty, // Use per-rule penalty
-                                        parsed: st.parsed + (end - st.pos),
-                                        keys: st.keys + 1,
-                                        dist: st.dist + (penalty * 100.0) as i32, // Scale for distance
-                                    };
-                                    next_beam.push(new_state);
-                                }
+                            if self.trie.contains_word(&alt) && alt != substr {
+                                // Accept fuzzy alternatives even if they differ in length
+                                // (e.g., lan -> nan via l=n rule if both are valid syllables)
+                                let end = st.pos + len;
+                                let mut new_tokens = st.tokens.clone();
+                                new_tokens.push(Syllable::new(alt.clone(), true));
+                                let new_state = State {
+                                    pos: end,
+                                    tokens: new_tokens,
+                                    cost: st.cost + penalty, // Use per-rule penalty
+                                    parsed: st.parsed + (end - st.pos),
+                                    keys: st.keys + 1,
+                                    dist: st.dist + (penalty * 100.0) as i32, // Scale for distance
+                                };
+                                next_beam.push(new_state);
                             }
                         }
                     }

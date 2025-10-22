@@ -68,13 +68,12 @@ pub struct Engine {
 impl Engine {
     /// Construct an Engine from a pre-built Model.
     ///
-    /// Uses standard zhuyin fuzzy rules by default.
+    /// Uses standard zhuyin fuzzy rules configured in the parser.
     /// Parser is created internally with standard bopomofo syllables.
     pub fn new(model: Model) -> Self {
-        let rules = crate::standard_fuzzy_rules();
         let parser = ZhuyinParser::with_syllables(ZHUYIN_SYLLABLES);
         Self {
-            inner: libchinese_core::Engine::new(model, parser, rules),
+            inner: libchinese_core::Engine::new(model, parser),
         }
     }
 

@@ -72,7 +72,7 @@ fn setup_test_engine(cache_size: usize) -> Option<Engine<MockParser>> {
     let model = Model::new(lex, ngram, userdict, cfg, interpolator);
     let parser = MockParser;
     
-    Some(Engine::new(model, parser, vec![]))
+    Some(Engine::new(model, parser))
 }
 
 #[test]

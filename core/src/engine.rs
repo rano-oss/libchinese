@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 use std::cell::RefCell;
-use crate::{Candidate, Model, FuzzyMap};
+use crate::{Candidate, Model};
 
 /// Trait that syllable parsers must implement to work with the generic Engine.
 pub trait SyllableParser {
@@ -25,13 +25,15 @@ pub trait SyllableType {
     fn is_fuzzy(&self) -> bool;
 }
 
-/// Generic IME engine that combines parser, model, and fuzzy matching.
+/// Generic IME engine that combines parser and model for candidate generation.
 ///
 /// Type parameter P is the parser type (e.g., Parser for pinyin, ZhuyinParser for zhuyin).
+/// 
+/// Note: Fuzzy matching is handled by the parser during segmentation. The engine
+/// works with the segmentations provided by the parser.
 pub struct Engine<P> {
     model: Model,
     parser: P,
-    fuzzy: FuzzyMap,
     limit: usize,
     cache: RefCell<lru::LruCache<String, Vec<Candidate>>>,
     cache_hits: RefCell<usize>,
@@ -39,15 +41,15 @@ pub struct Engine<P> {
 }
 
 impl<P: SyllableParser> Engine<P> {
-    /// Create a new engine with the given model, parser, and fuzzy rules.
-    pub fn new(model: Model, parser: P, fuzzy_rules: Vec<String>) -> Self {
-        let fuzzy = FuzzyMap::from_rules(&fuzzy_rules);
+    /// Create a new engine with the given model and parser.
+    /// 
+    /// Fuzzy matching is handled by the parser, so no fuzzy rules are needed here.
+    pub fn new(model: Model, parser: P) -> Self {
         let cache_capacity = model.config.max_cache_size;
         
         Self {
             model,
             parser,
-            fuzzy,
             limit: 8,
             cache: RefCell::new(lru::LruCache::new(
                 std::num::NonZeroUsize::new(cache_capacity).unwrap_or(std::num::NonZeroUsize::new(1000).unwrap())
@@ -61,11 +63,11 @@ impl<P: SyllableParser> Engine<P> {
     ///
     /// This implements the full IME pipeline:
     /// 1. Check cache for previous result
-    /// 2. Parse input into syllable segmentations
+    /// 2. Parse input into syllable segmentations (parser handles fuzzy matching)
     /// 3. For each segmentation:
-    ///    - Generate fuzzy key alternatives
+    ///    - Convert to lexicon key
     ///    - Look up candidates in lexicon
-    ///    - Apply fuzzy penalties
+    ///    - Apply penalty if segmentation used fuzzy matching
     /// 4. Merge and rank candidates
     /// 5. Cache the result
     pub fn input(&self, input: &str) -> Vec<Candidate> {
@@ -77,36 +79,22 @@ impl<P: SyllableParser> Engine<P> {
 
         *self.cache_misses.borrow_mut() += 1;
 
-        // Get top segmentations (k best)
+        // Get top segmentations from parser (parser already applied fuzzy matching)
         let segs = self.parser.segment_top_k(input, 4, true);
 
         // Map from phrase -> best Candidate (keep highest score)
         let mut best: HashMap<String, Candidate> = HashMap::new();
 
         for seg in segs.into_iter() {
-            // Generate fuzzy alternative keys for this segmentation
-            let keys_to_try = self.generate_fuzzy_key_alternatives(&seg);
-
-            // Try all alternative keys (exact + fuzzy alternatives)
-            let mut candidates = Vec::new();
-            for (i, alt_key) in keys_to_try.iter().enumerate() {
-                let mut key_candidates = self.model.candidates_for_key(alt_key, self.limit);
-                
-                // Apply fuzzy penalty if this is not the original key (index 0 is always original)
-                if i > 0 {
-                    let penalty = self.fuzzy.default_penalty();
-                    for c in key_candidates.iter_mut() {
-                        c.score -= penalty;
-                    }
-                }
-                
-                candidates.append(&mut key_candidates);
-            }
-
-            // If this segmentation used parser-level fuzzy matches, apply additional penalty
-            let used_parser_fuzzy = seg.iter().any(|s| s.is_fuzzy());
-            if used_parser_fuzzy {
-                let penalty = self.fuzzy.default_penalty();
+            // Convert segmentation to lexicon lookup key
+            let key = Self::segmentation_to_key(&seg);
+            
+            // Look up candidates for this key
+            let mut candidates = self.model.candidates_for_key(&key, self.limit);
+            
+            // If this segmentation used parser-level fuzzy matches, apply penalty
+            let used_fuzzy = seg.iter().any(|s| s.is_fuzzy());
+            if used_fuzzy {
                 for c in candidates.iter_mut() {
                     c.score -= penalty;
                 }
@@ -203,59 +191,6 @@ impl<P: SyllableParser> Engine<P> {
         self.clear_cache();
     }
     
-    /// Generate all fuzzy key alternatives for a syllable segmentation.
-    ///
-    /// Returns a Vec where the first element is the original key,
-    /// followed by all fuzzy alternatives.
-    fn generate_fuzzy_key_alternatives(&self, segmentation: &[P::Syllable]) -> Vec<String> {
-        let mut alternatives = Vec::new();
-        
-        // Generate all combinations including the original
-        self.generate_combinations_recursive(segmentation, 0, String::new(), &mut alternatives);
-        
-        // Ensure original key is first (for penalty calculation)
-        let original_key = Self::segmentation_to_key(segmentation);
-        let mut unique_alternatives = vec![original_key.clone()];
-        
-        // Add other alternatives (deduplicated)
-        for alt in alternatives {
-            if alt != original_key && !unique_alternatives.contains(&alt) {
-                unique_alternatives.push(alt);
-            }
-        }
-        
-        unique_alternatives
-    }
-    
-    /// Recursively generate all combinations of syllable alternatives.
-    fn generate_combinations_recursive(
-        &self, 
-        segmentation: &[P::Syllable], 
-        position: usize, 
-        current: String, 
-        results: &mut Vec<String>
-    ) {
-        if position >= segmentation.len() {
-            if !current.is_empty() {
-                results.push(current);
-            }
-            return;
-        }
-        
-        let syllable = &segmentation[position];
-        
-        // Get alternatives for this syllable from fuzzy map
-        let alternatives = self.fuzzy.alternative_strings(syllable.text());
-        
-        // For each alternative, recurse to the next position
-        for alt in alternatives {
-            // Add apostrophe separator between syllables (not before first)
-            let separator = if current.is_empty() { "" } else { "'" };
-            let new_current = format!("{}{}{}", current, separator, alt);
-            self.generate_combinations_recursive(segmentation, position + 1, new_current, results);
-        }
-    }
-
     /// Convert a syllable segmentation to a lookup key.
     /// 
     /// Joins syllables with apostrophes to match lexicon key format.

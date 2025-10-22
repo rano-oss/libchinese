@@ -3,39 +3,53 @@
 /// These tests validate the comprehensive fuzzy matching rules and enhanced
 /// n-gram scoring implemented as part of completing Step 4.
 
-use libchinese_core::{Config, Interpolator, Lexicon, Model, NGramModel, UserDict};
+use libchinese_core::{Interpolator, Lexicon, Model, NGramModel, UserDict};
 use libpinyin::engine::Engine;
 use libpinyin::parser::Parser;
 
 #[test]
 fn enhanced_fuzzy_matching_comprehensive_rules() {
-    // Test that the enhanced fuzzy matching supports all major confusion pairs
+    // Test that comprehensive fuzzy matching works with syllable-level rules
+    // The parser now uses lib.rs::standard_fuzzy_rules() which includes ~180 
+    // pre-computed syllable mappings (zi=zhi, fan=fang, ben=beng, etc.)
+    
     let mut lex = Lexicon::new();
     
-    // Add pairs that should be confused via fuzzy matching
-    lex.insert("zi", "字");       // z/zh confusion
+    // Add syllables for z/zh, s/sh, c/ch confusion testing
+    lex.insert("zi", "字");
     lex.insert("zhi", "知");
-    lex.insert("si", "丝");       // s/sh confusion  
+    lex.insert("si", "丝");
     lex.insert("shi", "是");
-    lex.insert("ci", "次");       // c/ch confusion
+    lex.insert("ci", "次");
     lex.insert("chi", "吃");
-    lex.insert("lan", "蓝");      // l/n confusion
+    
+    // Add syllables for l/n, f/h, k/g confusion
+    lex.insert("lan", "蓝");
     lex.insert("nan", "南");
-    lex.insert("fan", "反");      // an/ang confusion
+    lex.insert("fa", "发");
+    lex.insert("ha", "哈");
+    lex.insert("kan", "看");
+    lex.insert("gan", "干");
+    
+    // Add syllables with an/ang, en/eng endings
+    lex.insert("fan", "反");
     lex.insert("fang", "方");
+    lex.insert("ban", "班");
+    lex.insert("bang", "帮");
+    lex.insert("ben", "本");
+    lex.insert("beng", "崩");
     
     let ng = NGramModel::new();
     let temp_path = std::env::temp_dir().join(format!(
         "test_userdict_{}.redb", std::process::id()
     ));
     let user = UserDict::new(&temp_path).expect("create test userdict");
-    let cfg = libpinyin::PinyinConfig::default().into_base(); // Now includes comprehensive fuzzy rules
+    let cfg = libpinyin::PinyinConfig::default().into_base();
     let model = Model::new(lex, ng, user, cfg, Interpolator::empty_for_test());
 
-    // Parser is now created internally with PINYIN_SYLLABLES
     let engine = Engine::new(model);
 
-    // Test z/zh confusion - input "zi" should find both "字" and "知" 
+    // Test z/zh confusion - now works with comprehensive rules!
     let candidates = engine.input("zi");
     let candidate_texts: Vec<&str> = candidates.iter().map(|c| c.text.as_str()).collect();
     assert!(candidate_texts.contains(&"字"), "Should find exact match for zi->字");
@@ -52,6 +66,12 @@ fn enhanced_fuzzy_matching_comprehensive_rules() {
     let candidate_texts: Vec<&str> = candidates.iter().map(|c| c.text.as_str()).collect();
     assert!(candidate_texts.contains(&"反"), "Should find exact match for fan->反");
     assert!(candidate_texts.contains(&"方"), "Should find fuzzy match fan->fang->方");
+
+    // Test en/eng confusion
+    let candidates = engine.input("ben");
+    let candidate_texts: Vec<&str> = candidates.iter().map(|c| c.text.as_str()).collect();
+    assert!(candidate_texts.contains(&"本"), "Should find exact match for ben->本");
+    assert!(candidate_texts.contains(&"崩"), "Should find fuzzy match ben->beng->崩");
 }
 
 #[test]

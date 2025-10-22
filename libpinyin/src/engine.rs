@@ -431,12 +431,11 @@ pub const PINYIN_SYLLABLES: &[&str] = &[
 impl Engine {
     /// Construct an Engine from a pre-built `Model` and a `Parser`.
     ///
-    /// Uses standard pinyin fuzzy rules by default.
+    /// Uses standard pinyin fuzzy rules configured in the parser.
     pub fn new(model: Model) -> Self {
-        let rules = crate::standard_fuzzy_rules();
         let parser = Parser::with_syllables(PINYIN_SYLLABLES);
         Self {
-            inner: libchinese_core::Engine::new(model, parser, rules),
+            inner: libchinese_core::Engine::new(model, parser),
         }
     }
 

@@ -86,7 +86,7 @@ impl PinyinConfig {
 /// - Nasal finals: an=ang, en=eng, in=ing
 /// - Front/back nasal confusion: ian=iang, uan=uang
 /// - Common consonant confusions: l=n, f=h, k=g
-fn pinyin_default_fuzzy_rules() -> Vec<String> {
+pub fn pinyin_default_fuzzy_rules() -> Vec<String> {
     vec![
         // Retroflex vs non-retroflex
         "zh=z".into(), "z=zh".into(),
