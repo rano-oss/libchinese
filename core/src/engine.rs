@@ -91,14 +91,6 @@ impl<P: SyllableParser> Engine<P> {
             
             // Look up candidates for this key
             let mut candidates = self.model.candidates_for_key(&key, self.limit);
-            
-            // If this segmentation used parser-level fuzzy matches, apply penalty
-            let used_fuzzy = seg.iter().any(|s| s.is_fuzzy());
-            if used_fuzzy {
-                for c in candidates.iter_mut() {
-                    c.score -= penalty;
-                }
-            }
 
             // Merge candidates: keep the best score seen for this exact phrase
             for cand in candidates.into_iter() {

@@ -71,7 +71,8 @@ impl Engine {
     /// Uses standard zhuyin fuzzy rules configured in the parser.
     /// Parser is created internally with standard bopomofo syllables.
     pub fn new(model: Model) -> Self {
-        let parser = ZhuyinParser::with_syllables(ZHUYIN_SYLLABLES);
+        let fuzzy_rules = crate::standard_fuzzy_rules();
+        let parser = ZhuyinParser::new(fuzzy_rules, ZHUYIN_SYLLABLES);
         Self {
             inner: libchinese_core::Engine::new(model, parser),
         }

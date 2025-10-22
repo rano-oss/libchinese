@@ -45,10 +45,3 @@ pub fn standard_fuzzy_rules() -> Vec<String> {
     
     rules
 }
-
-/// Create an empty fuzzy rules configuration.
-///
-/// Use this when you want no fuzzy matching (strict input only).
-pub fn no_fuzzy_rules() -> Vec<String> {
-    Vec::new()
-}

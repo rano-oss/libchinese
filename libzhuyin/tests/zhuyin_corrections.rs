@@ -11,11 +11,8 @@ use libzhuyin::parser::{ZhuyinParser, ZhuyinSyllable};
 #[test]
 fn zhuyin_correct_shuffle_ui_medials() {
     // Test ㄨㄟ <-> ㄩㄟ correction (u vs ü medials with finals)
-    let mut parser = ZhuyinParser::new();
-    
-    // Insert correct syllables
-    parser.insert_syllable("ㄉㄨㄟ");  // dui (correct)
-    parser.insert_syllable("ㄉㄩㄟ");  // duei (alternate)
+    let rules = libzhuyin::standard_fuzzy_rules();
+    let parser = ZhuyinParser::new(rules, &["ㄉㄨㄟ", "ㄉㄩㄟ"]);
     
     // Test that corrections are generated
     let corrections = parser.apply_corrections("ㄉㄨㄟ");
@@ -28,10 +25,8 @@ fn zhuyin_correct_shuffle_ui_medials() {
 #[test]
 fn zhuyin_correct_shuffle_un_finals() {
     // Test ㄨㄣ <-> ㄩㄣ correction
-    let mut parser = ZhuyinParser::new();
-    
-    parser.insert_syllable("ㄓㄨㄣ");  // zhun
-    parser.insert_syllable("ㄓㄩㄣ");  // zhuen
+    let rules = libzhuyin::standard_fuzzy_rules();
+    let parser = ZhuyinParser::new(rules, &["ㄓㄨㄣ", "ㄓㄩㄣ"]);
     
     let corrections = parser.apply_corrections("ㄓㄨㄣ");
     assert!(corrections.contains(&"ㄓㄩㄣ".to_string()), "Should suggest ㄩㄣ variant");
@@ -43,10 +38,8 @@ fn zhuyin_correct_shuffle_un_finals() {
 #[test]
 fn zhuyin_correct_hsu_zh_j_confusion() {
     // HSU keyboard: ㄓ and ㄐ map to same key
-    let mut parser = ZhuyinParser::new();
-    
-    parser.insert_syllable("ㄓㄨ");  // zhu
-    parser.insert_syllable("ㄐㄩ");  // ju
+    let rules = libzhuyin::standard_fuzzy_rules();
+    let parser = ZhuyinParser::new(rules, &["ㄓㄨ", "ㄐㄩ"]);
     
     let corrections = parser.apply_corrections("ㄓㄨ");
     assert!(corrections.contains(&"ㄐㄨ".to_string()), "HSU: Should suggest ㄐ variant");
@@ -58,10 +51,8 @@ fn zhuyin_correct_hsu_zh_j_confusion() {
 #[test]
 fn zhuyin_correct_hsu_ch_q_confusion() {
     // HSU keyboard: ㄔ and ㄑ map to same key
-    let mut parser = ZhuyinParser::new();
-    
-    parser.insert_syllable("ㄔㄨ");  // chu
-    parser.insert_syllable("ㄑㄩ");  // qu
+    let rules = libzhuyin::standard_fuzzy_rules();
+    let parser = ZhuyinParser::new(rules, &["ㄔㄨ", "ㄑㄩ"]);
     
     let corrections = parser.apply_corrections("ㄔㄨ");
     assert!(corrections.contains(&"ㄑㄨ".to_string()), "HSU: Should suggest ㄑ variant");
@@ -73,10 +64,8 @@ fn zhuyin_correct_hsu_ch_q_confusion() {
 #[test]
 fn zhuyin_correct_hsu_sh_x_confusion() {
     // HSU keyboard: ㄕ and ㄒ map to same key
-    let mut parser = ZhuyinParser::new();
-    
-    parser.insert_syllable("ㄕㄨ");  // shu
-    parser.insert_syllable("ㄒㄩ");  // xu
+    let rules = libzhuyin::standard_fuzzy_rules();
+    let parser = ZhuyinParser::new(rules, &["ㄕㄨ", "ㄒㄩ"]);
     
     let corrections = parser.apply_corrections("ㄕㄨ");
     assert!(corrections.contains(&"ㄒㄨ".to_string()), "HSU: Should suggest ㄒ variant");
@@ -88,10 +77,8 @@ fn zhuyin_correct_hsu_sh_x_confusion() {
 #[test]
 fn zhuyin_correct_eten26_zh_z_confusion() {
     // ETEN26 keyboard: ㄓ and ㄗ confusion
-    let mut parser = ZhuyinParser::new();
-    
-    parser.insert_syllable("ㄓㄨ");  // zhu
-    parser.insert_syllable("ㄗㄨ");  // zu
+    let rules = libzhuyin::standard_fuzzy_rules();
+    let parser = ZhuyinParser::new(rules, &["ㄓㄨ", "ㄗㄨ"]);
     
     let corrections = parser.apply_corrections("ㄓㄨ");
     assert!(corrections.contains(&"ㄗㄨ".to_string()), "ETEN26: Should suggest ㄗ variant");
@@ -103,11 +90,9 @@ fn zhuyin_correct_eten26_zh_z_confusion() {
 #[test]
 fn zhuyin_correct_eten26_ch_c_confusion() {
     // ETEN26 keyboard: ㄔ and ㄘ confusion
-    let mut parser = ZhuyinParser::new();
-    
-    parser.insert_syllable("ㄔㄨ");  // chu
-    parser.insert_syllable("ㄘㄨ");  // cu
-    
+    let rules = libzhuyin::standard_fuzzy_rules();
+    let parser = ZhuyinParser::new(rules, &["ㄔㄨ", "ㄘㄨ"]);
+
     let corrections = parser.apply_corrections("ㄔㄨ");
     assert!(corrections.contains(&"ㄘㄨ".to_string()), "ETEN26: Should suggest ㄘ variant");
     
@@ -118,10 +103,8 @@ fn zhuyin_correct_eten26_ch_c_confusion() {
 #[test]
 fn zhuyin_correct_eten26_sh_s_confusion() {
     // ETEN26 keyboard: ㄕ and ㄙ confusion
-    let mut parser = ZhuyinParser::new();
-    
-    parser.insert_syllable("ㄕㄨ");  // shu
-    parser.insert_syllable("ㄙㄨ");  // su
+    let rules = libzhuyin::standard_fuzzy_rules();
+    let parser = ZhuyinParser::new(rules, &["ㄕㄨ", "ㄙㄨ"]);
     
     let corrections = parser.apply_corrections("ㄕㄨ");
     assert!(corrections.contains(&"ㄙㄨ".to_string()), "ETEN26: Should suggest ㄙ variant");
@@ -133,11 +116,8 @@ fn zhuyin_correct_eten26_sh_s_confusion() {
 #[test]
 fn zhuyin_corrections_in_segmentation() {
     // Test that corrections work during actual segmentation with fuzzy enabled
-    let mut parser = ZhuyinParser::new();
-    
-    // Insert correct syllables
-    parser.insert_syllable("ㄉㄨㄟ");
-    parser.insert_syllable("ㄓㄨ");
+    let rules = libzhuyin::standard_fuzzy_rules();
+    let parser = ZhuyinParser::new(rules, &["ㄉㄨㄟ", "ㄓㄨ"]);
     
     // Input with error that should be corrected: ㄉㄩㄟ instead of ㄉㄨㄟ
     let result = parser.segment_best("ㄉㄩㄟㄓㄨ", true);
@@ -153,11 +133,8 @@ fn zhuyin_corrections_in_segmentation() {
 #[test]
 fn zhuyin_no_corrections_when_exact_match_exists() {
     // When exact match exists, it should be found (though correction may also match)
-    let mut parser = ZhuyinParser::new();
-    
-    // Insert BOTH variants as valid
-    parser.insert_syllable("ㄉㄨㄟ");
-    parser.insert_syllable("ㄉㄩㄟ");
+    let rules = libzhuyin::standard_fuzzy_rules();
+    let parser = ZhuyinParser::new(rules, &["ㄉㄨㄟ", "ㄉㄩㄟ"]);
     
     // Should find the input
     let result = parser.segment_best("ㄉㄩㄟ", true);
@@ -170,12 +147,8 @@ fn zhuyin_no_corrections_when_exact_match_exists() {
 #[test]
 fn zhuyin_multiple_corrections_tried() {
     // Test that multiple correction types can be applied
-    let mut parser = ZhuyinParser::new();
-    
-    // Valid syllables
-    parser.insert_syllable("ㄓㄨ");   // zhu
-    parser.insert_syllable("ㄐㄩ");   // ju  
-    parser.insert_syllable("ㄗㄨ");   // zu
+    let rules = libzhuyin::standard_fuzzy_rules();
+    let parser = ZhuyinParser::new(rules, &["ㄓㄨ", "ㄐㄩ", "ㄗㄨ"]);
     
     // Input: ㄓㄨ could be corrected via HSU (ㄓ->ㄐ) OR ETEN26 (ㄓ->ㄗ)
     let corrections = parser.apply_corrections("ㄓㄨ");
@@ -189,8 +162,9 @@ fn zhuyin_multiple_corrections_tried() {
 #[test]
 fn zhuyin_corrections_empty_for_no_patterns() {
     // Corrections should return empty vec when no patterns match
-    let parser = ZhuyinParser::new();
-    
+    let rules = libzhuyin::standard_fuzzy_rules();
+    let parser = ZhuyinParser::new(rules, &[""]);
+
     let corrections = parser.apply_corrections("ㄅㄚ");  // ba - no correction patterns
     assert!(corrections.is_empty(), "Should have no corrections for ㄅㄚ");
 }

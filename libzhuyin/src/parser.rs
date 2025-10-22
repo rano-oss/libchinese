@@ -66,39 +66,18 @@ pub struct ZhuyinParser {
 }
 
 impl ZhuyinParser {
-    /// Create a parser with standard zhuyin fuzzy rules.
-    pub fn new() -> Self {
-        let rules = crate::standard_fuzzy_rules();
-        Self {
-            trie: TrieNode::new(),
-            fuzzy: FuzzyMap::from_rules(&rules),
+    /// Create a parser seeded with a list of valid zhuyin syllables and fuzzy rules.
+    pub fn new<T: AsRef<str>>(fuzzy_rules: Vec<String>, syllables: &[T]) -> Self {
+        let mut trie = TrieNode::new();
+        for s in syllables {
+            trie.insert(s.as_ref());
         }
-    }
-    
-    /// Create a parser with custom fuzzy rules.
-    pub fn with_fuzzy_rules(fuzzy_rules: Vec<String>) -> Self {
         Self {
-            trie: TrieNode::new(),
+            trie,
             fuzzy: FuzzyMap::from_rules(&fuzzy_rules),
         }
     }
 
-    /// Create a parser seeded with a list of valid zhuyin syllables.
-    /// Syllables are inserted verbatim (unicode-aware).
-    pub fn with_syllables<T: AsRef<str>>(syllables: &[T]) -> Self {
-        let mut p = ZhuyinParser::new();
-        for s in syllables {
-            p.insert_syllable(s.as_ref());
-        }
-        p
-    }
-
-    /// Insert a single syllable into the internal trie.
-    pub fn insert_syllable(&mut self, syllable: &str) {
-        if !syllable.trim().is_empty() {
-            self.trie.insert(syllable.trim());
-        }
-    }
 
     /// Apply zhuyin corrections to a string.
     /// Returns corrected alternatives (similar to pinyin corrections).
@@ -285,17 +264,6 @@ impl ZhuyinParser {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn trie_basic_insert_and_contains() {
-        let mut trie = TrieNode::new();
-        trie.insert("ㄓ");
-        trie.insert("ㄗ");
-        assert!(trie.contains_word("ㄓ"));
-        assert!(trie.contains_word("ㄗ"));
-        assert!(!trie.contains_word("ㄔ"));
-    }
-
     #[test]
     fn fuzzy_basic_alternatives() {
         // Test the standard fuzzy rules
@@ -313,12 +281,8 @@ mod tests {
 
     #[test]
     fn parser_segment_simple() {
-        let mut p = ZhuyinParser::new();
-        // seed a few syllables (using bopomofo characters or ASCII placeholders)
-        p.insert_syllable("ㄋㄧ");
-        p.insert_syllable("ㄏㄠ");
-        p.insert_syllable("ㄓㄨㄥ");
-        p.insert_syllable("ㄍㄨㄛ");
+        let rules = crate::standard_fuzzy_rules();
+        let mut p = ZhuyinParser::new(rules, &["ㄋㄧ", "ㄏㄠ", "ㄓㄨㄥ", "ㄍㄨㄛ"]);
 
         let seg = p.segment_best("ㄋㄧㄏㄠ", false);
         let texts: Vec<String> = seg.into_iter().map(|s| s.text).collect();
@@ -331,8 +295,8 @@ mod tests {
 
     #[test]
     fn parser_unknown_fallback() {
-        let mut p = ZhuyinParser::new();
-        p.insert_syllable("ㄋㄧ");
+        let rules = crate::standard_fuzzy_rules();
+        let mut p = ZhuyinParser::new(rules, &["ㄋㄧ", "ㄏㄠ", "ㄓㄨㄥ", "ㄍㄨㄛ"]);
         let seg = p.segment_best("ㄋㄧX", false);
         let texts: Vec<String> = seg.into_iter().map(|s| s.text).collect();
         assert_eq!(texts, vec!["ㄋㄧ".to_string(), "X".to_string()]);

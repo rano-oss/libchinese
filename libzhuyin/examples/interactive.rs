@@ -218,7 +218,8 @@ fn handle_test_command(mode: TestMode, input: &str) {
         TestMode::Segmentation => {
             println!("🔍 Zhuyin segmentation analysis:");
             // Build a parser for segmentation testing
-            let parser = ZhuyinParser::with_syllables(libzhuyin::ZHUYIN_SYLLABLES);
+            let rules = libzhuyin::standard_fuzzy_rules();
+            let parser = ZhuyinParser::new(rules, libzhuyin::ZHUYIN_SYLLABLES);
             let segs = parser.segment_top_k(input, 3, true);
             for (i, seg) in segs.iter().enumerate() {
                 println!("  {}. {:?}", i + 1, seg.iter().map(|s| &s.text).collect::<Vec<_>>());
