@@ -26,7 +26,6 @@ pub mod config;
 pub mod parser;
 pub mod engine;
 pub mod double_pinyin;
-pub mod wade_giles;
 
 // Convenience re-exports for common types used by callers.
 pub use config::PinyinConfig;
