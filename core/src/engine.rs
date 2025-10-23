@@ -42,8 +42,6 @@ pub struct Engine<P> {
 
 impl<P: SyllableParser> Engine<P> {
     /// Create a new engine with the given model and parser.
-    /// 
-    /// Fuzzy matching is handled by the parser, so no fuzzy rules are needed here.
     pub fn new(model: Model, parser: P) -> Self {
         let cache_capacity = model.config.max_cache_size;
         
@@ -90,7 +88,7 @@ impl<P: SyllableParser> Engine<P> {
             let key = Self::segmentation_to_key(&seg);
             
             // Look up candidates for this key
-            let mut candidates = self.model.candidates_for_key(&key, self.limit);
+            let candidates = self.model.candidates_for_key(&key, self.limit);
 
             // Merge candidates: keep the best score seen for this exact phrase
             for cand in candidates.into_iter() {

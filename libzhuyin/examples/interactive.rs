@@ -33,6 +33,7 @@ fn build_demo_engine() -> Engine {
     ng.insert_unigram("号", -2.0);
     ng.insert_unigram("中", -1.1);
     ng.insert_unigram("国", -1.3);
+    ng.set_interpolator(Interpolator::empty_for_test());
 
     let temp_path = std::env::temp_dir().join(format!(
         "libzhuyin_fallback_userdict_{}.redb",
@@ -42,7 +43,7 @@ fn build_demo_engine() -> Engine {
     user.learn("你好");
 
     let cfg = libzhuyin::ZhuyinConfig::default().into_base();
-    let model = Model::new(lx, ng, user, cfg, Interpolator::empty_for_test());
+    let model = Model::new(lx, ng, user, cfg);
     
     // Parser is created internally using ZHUYIN_SYLLABLES
     Engine::new(model)

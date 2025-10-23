@@ -39,13 +39,14 @@ fn enhanced_fuzzy_matching_comprehensive_rules() {
     lex.insert("ben", "本");
     lex.insert("beng", "崩");
     
-    let ng = NGramModel::new();
+    let mut ng = NGramModel::new();
+    ng.set_interpolator(Interpolator::empty_for_test());
     let temp_path = std::env::temp_dir().join(format!(
         "test_userdict_{}.redb", std::process::id()
     ));
     let user = UserDict::new(&temp_path).expect("create test userdict");
     let cfg = libpinyin::PinyinConfig::default().into_base();
-    let model = Model::new(lex, ng, user, cfg, Interpolator::empty_for_test());
+    let model = Model::new(lex, ng, user, cfg);
 
     let engine = Engine::new(model);
 
@@ -97,12 +98,14 @@ fn enhanced_ngram_scoring_with_backoff() {
     // Strong trigram for "我爱你"
     ng.insert_trigram("我", "爱", "你", -0.3);
 
+    ng.set_interpolator(Interpolator::empty_for_test());
+
     let temp_path = std::env::temp_dir().join(format!(
         "test_userdict_ngram_{}.redb", std::process::id()
     ));
     let user = UserDict::new(&temp_path).expect("create test userdict");
     let cfg = libpinyin::PinyinConfig::default().into_base();
-    let model = Model::new(lex, ng, user, cfg, Interpolator::empty_for_test());
+    let model = Model::new(lex, ng, user, cfg);
 
     // Test that the enhanced scoring correctly applies backoff smoothing
     let candidates1 = model.candidates_for_key("wo", 5);

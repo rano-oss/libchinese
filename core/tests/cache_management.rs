@@ -62,14 +62,16 @@ fn setup_test_engine(cache_size: usize) -> Option<Engine<MockParser>> {
         &data_dir.join("pinyin.fst"),
         &data_dir.join("pinyin.redb")
     ).ok()?;
-    let ngram = NGramModel::load_bincode(&data_dir.join("ngram.bincode")).ok()?;
+    let mut ngram = NGramModel::load_bincode(&data_dir.join("ngram.bincode")).ok()?;
     let userdict = UserDict::new(&data_dir.join("test_userdict.redb")).ok()?;
     let interpolator = Interpolator::load(
         &data_dir.join("pinyin.lambdas.fst"),
         &data_dir.join("pinyin.lambdas.redb")
     ).ok()?;
     
-    let model = Model::new(lex, ngram, userdict, cfg, interpolator);
+    ngram.set_interpolator(interpolator);
+    
+    let model = Model::new(lex, ngram, userdict, cfg);
     let parser = MockParser;
     
     Some(Engine::new(model, parser))

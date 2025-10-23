@@ -60,12 +60,20 @@ impl Interpolator {
     }
 }
 
+impl Default for Interpolator {
+    fn default() -> Self {
+        Self::empty_for_test()
+    }
+}
+
 /// Lightweight container holding ln(probabilities) for 1/2/3-grams.
 ///
 /// Probabilities are stored as natural logarithms (ln). The model is generic
 /// in that it stores arbitrary string tokens — language crates are responsible
 /// for tokenizing phrases into tokens appropriate for the n-gram model
 /// (characters, words, or segmented tokens).
+/// 
+/// Owns an Interpolator for per-key lambda lookups during scoring.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NGramModel {
     /// unigram: ln P(w)
@@ -76,16 +84,36 @@ pub struct NGramModel {
 
     /// trigram: ln P(w3 | w1, w2) keyed by (w1, w2, w3)
     trigram: HashMap<(String, String, String), f64>,
+    
+    /// Interpolator for per-key lambda lookups (not serialized, must be set separately)
+    #[serde(skip)]
+    interpolator: Interpolator,
 }
 
 impl NGramModel {
-    /// Create an empty model.
+    /// Create an empty model with an empty interpolator.
     pub fn new() -> Self {
         Self {
             unigram: HashMap::new(),
             bigram: HashMap::new(),
             trigram: HashMap::new(),
+            interpolator: Interpolator::empty_for_test(),
         }
+    }
+    
+    /// Create a model with a specific interpolator.
+    pub fn with_interpolator(interpolator: Interpolator) -> Self {
+        Self {
+            unigram: HashMap::new(),
+            bigram: HashMap::new(),
+            trigram: HashMap::new(),
+            interpolator,
+        }
+    }
+
+    /// Set the interpolator for this model.
+    pub fn set_interpolator(&mut self, interpolator: Interpolator) {
+        self.interpolator = interpolator;
     }
 
     /// Insert a unigram ln(probability).
@@ -236,7 +264,7 @@ impl NGramModel {
         effective_uw * unigram_prob + effective_bw * bigram_prob + effective_tw * trigram_prob
     }
 
-    /// Score a token sequence but consult an optional Interpolator for per-key lambdas.
+    /// Score a token sequence but consult the internal Interpolator for per-key lambdas.
     ///
     /// `key_for_lookup` is passed to the interpolator to find a per-key lambda
     /// triple. If no entry is found, falls back to `cfg` weights.
@@ -245,7 +273,6 @@ impl NGramModel {
         tokens: &[String],
         cfg: &crate::Config,
         key_for_lookup: &str,
-        interpolator: &Interpolator,
     ) -> f32 {
         if tokens.is_empty() {
             return std::f32::NEG_INFINITY;
@@ -253,9 +280,9 @@ impl NGramModel {
 
         let floor = -20.0f64;
 
-        // decide weights
+        // decide weights from internal interpolator
         let mut weights: [f32; 3] = [cfg.unigram_weight, cfg.bigram_weight, cfg.trigram_weight];
-        if let Some(Lambdas(arr)) = interpolator.lookup(key_for_lookup) {
+        if let Some(Lambdas(arr)) = self.interpolator.lookup(key_for_lookup) {
             weights = arr;
         }
 

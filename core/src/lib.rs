@@ -231,7 +231,6 @@ pub struct Model {
     pub ngram: Arc<NGramModel>,
     pub userdict: UserDict,
     pub config: Config,
-    pub interpolator: Arc<Interpolator>,
 }
 
 impl Model {
@@ -241,14 +240,12 @@ impl Model {
         ngram: NGramModel,
         userdict: UserDict,
         config: Config,
-        interpolator: Interpolator,
     ) -> Self {
         Self {
             lexicon: Arc::new(lexicon),
             ngram: Arc::new(ngram),
             userdict,
             config,
-            interpolator: Arc::new(interpolator),
         }
     }
 
@@ -269,7 +266,7 @@ impl Model {
                 // Tokenize: for demo, split by char to create tokens.
                 let tokens: Vec<String> = phrase.chars().map(|c| c.to_string()).collect();
                 let mut score = self.ngram
-                    .score_sequence_with_interpolator(&tokens, &self.config, key, &*self.interpolator);
+                    .score_sequence_with_interpolator(&tokens, &self.config, key);
 
                 // Boost with user frequency (log-ish)
                 let freq = self.userdict.frequency(&phrase);

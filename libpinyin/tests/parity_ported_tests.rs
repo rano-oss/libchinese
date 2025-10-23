@@ -71,6 +71,7 @@ fn parity_engine_lookup_flow() {
     let mut ng = NGramModel::new();
     ng.insert_unigram("你", -1.0_f64);
     ng.insert_unigram("好", -1.0_f64);
+    ng.set_interpolator(Interpolator::empty_for_test());
 
     // Construct a default UserDict using the current core API.
     let temp_path = std::env::temp_dir().join(format!(
@@ -78,7 +79,7 @@ fn parity_engine_lookup_flow() {
     ));
     let user = UserDict::new(&temp_path).expect("create test userdict");
     let cfg = libpinyin::PinyinConfig::default().into_base();
-    let model = Model::new(lex, ng, user, cfg, Interpolator::empty_for_test());
+    let model = Model::new(lex, ng, user, cfg);
 
     // Parser is now created internally with PINYIN_SYLLABLES
     let engine = Engine::new(model);

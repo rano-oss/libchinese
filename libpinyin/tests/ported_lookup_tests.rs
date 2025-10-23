@@ -28,6 +28,7 @@ fn userdict_commit_changes_ranking_end_to_end() {
     // Make "号" likely (better score) and "好" unlikely so "你号" ranks higher initially.
     ng.insert_unigram("号", -1.0_f64); // favorable
     ng.insert_unigram("好", -3.0_f64); // unfavorable
+    ng.set_interpolator(Interpolator::empty_for_test());
 
     // Empty user dictionary initially.
     let temp_path = std::env::temp_dir().join(format!(
@@ -37,7 +38,7 @@ fn userdict_commit_changes_ranking_end_to_end() {
 
     // Config with default interpolation weights (not critical for this test).
     let cfg = libpinyin::PinyinConfig::default().into_base();
-    let model = Model::new(lex, ng, user, cfg, Interpolator::empty_for_test());
+    let model = Model::new(lex, ng, user, cfg);
 
     // Engine doesn't need to be mutable - commit() takes &self
     // Parser is now created internally with PINYIN_SYLLABLES
@@ -84,6 +85,7 @@ fn model_candidates_for_key_respects_userdict_boost() {
     ng.insert_unigram("你", -1.0_f64);
     ng.insert_unigram("号", -0.5_f64);
     ng.insert_unigram("好", -3.0_f64);
+    ng.set_interpolator(Interpolator::empty_for_test());
 
     // Pre-populate userdict and boost "你好" several times
     let temp_path = std::env::temp_dir().join(format!(
@@ -97,7 +99,7 @@ fn model_candidates_for_key_respects_userdict_boost() {
     }
 
     let cfg = libpinyin::PinyinConfig::default().into_base();
-    let model = Model::new(lex, ng, user, cfg, Interpolator::empty_for_test());
+    let model = Model::new(lex, ng, user, cfg);
 
     // Directly ask the model for candidates for the key and verify ordering.
     let candidates = model.candidates_for_key("nihao", 10);

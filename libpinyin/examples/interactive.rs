@@ -58,8 +58,11 @@ fn build_model() -> Result<Model, Box<dyn std::error::Error>> {
         Interpolator::empty_for_test()
     });
 
+    let mut ng = ng;
+    ng.set_interpolator(interp);
+
     let cfg = libpinyin::PinyinConfig::default().into_base();
-    Ok(Model::new(lx, ng, user, cfg, interp))
+    Ok(Model::new(lx, ng, user, cfg))
 }
 
 fn print_candidate(key: &str, cand: &Candidate, idx: usize) {
