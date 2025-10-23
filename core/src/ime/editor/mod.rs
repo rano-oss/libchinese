@@ -12,8 +12,8 @@ pub use phonetic::PhoneticEditor;
 pub use punctuation::PunctuationEditor;
 pub use suggestion::SuggestionEditor;
 
-use crate::session::ImeSession;
-use crate::ime_engine::KeyEvent;
+use super::session::ImeSession;
+use super::engine::KeyEvent;
 
 /// Result of processing a key event in an editor.
 #[derive(Debug, Clone, PartialEq)]
@@ -28,7 +28,7 @@ pub enum EditorResult {
     CommitAndReset(String),
     
     /// Request to switch to a different mode
-    ModeSwitch(crate::session::InputMode),
+    ModeSwitch(super::session::InputMode),
     
     /// Key not handled by this editor, pass to parent
     PassThrough,

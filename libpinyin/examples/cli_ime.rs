@@ -10,7 +10,7 @@
 //! Run with: cargo run --example cli_ime
 
 use std::io::{self, Write};
-use libpinyin::{ImeEngine, KeyEvent, KeyResult, Engine};
+use libpinyin::{ImeEngine, KeyEvent, KeyResult, Parser, Engine};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== libpinyin CLI IME Demo (Phase 2: Editor Architecture) ===");
@@ -40,7 +40,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Loading engine from data directory...");
     let data_dir = std::env::current_dir()?.join("data");
     let backend = Engine::from_data_dir(&data_dir)?;
-    let mut ime = ImeEngine::with_page_size(backend, 9);
+    let mut ime = ImeEngine::from_arc_with_page_size(backend.inner_arc(), 9);
     
     println!("✓ Engine loaded successfully!");
     println!();
@@ -101,7 +101,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn display_ime_state(ime: &ImeEngine) {
+fn display_ime_state(ime: &ImeEngine<Parser>) {
     let context = ime.context();
     let session = ime.session();
 

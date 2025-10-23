@@ -6,4 +6,5 @@
 
 pub mod list;
 
-pub use list::{Candidate, CandidateList};
+pub use list::CandidateList;
+pub use crate::Candidate;

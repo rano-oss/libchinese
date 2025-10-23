@@ -27,30 +27,17 @@ pub mod parser;
 pub mod engine;
 pub mod double_pinyin;
 
-// IME session management (Phase 1)
-pub mod input_buffer;
-pub mod composition;
-pub mod candidates;
-pub mod context;
-pub mod session;
-pub mod ime_engine;
-
-// Specialized editors (Phase 2)
-pub mod editor;
-
 // Cloud input support (Phase 4)
 pub mod cloud;
+
+// Re-export IME components from core
+pub use libchinese_core::ime::*;
 
 // Convenience re-exports for common types used by callers.
 pub use config::PinyinConfig;
 pub use engine::{Engine, PINYIN_SYLLABLES};
 pub use parser::{Parser, Syllable};
 pub use double_pinyin::{DoublePinyinScheme, DoublePinyinSchemeData, get_scheme_data};
-
-// IME session management re-exports
-pub use ime_engine::{ImeEngine, KeyEvent, KeyResult};
-pub use context::{ImeContext, InputPurpose};
-pub use session::{ImeSession, InputMode};
 
 // Cloud input re-exports
 pub use cloud::{CloudInput, CloudProvider, CloudCandidate};

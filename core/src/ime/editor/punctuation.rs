@@ -4,9 +4,9 @@
 //! marks commonly used in Chinese text. It's triggered by typing punctuation
 //! keys (comma, period, etc.) during phonetic input.
 
-use crate::session::ImeSession;
-use crate::ime_engine::KeyEvent;
-use crate::candidates::Candidate;
+use super::super::session::ImeSession;
+use super::super::engine::KeyEvent;
+use super::super::candidates::Candidate;
 use super::{Editor, EditorResult};
 use std::collections::HashMap;
 
@@ -87,7 +87,7 @@ impl PunctuationEditor {
             // Set candidates
             let candidates: Vec<Candidate> = alternatives
                 .iter()
-                .map(|&s| Candidate::new(s))
+                .map(|&s| Candidate::new(s, 1.0))
                 .collect();
             
             session.candidates_mut().set_candidates(candidates);

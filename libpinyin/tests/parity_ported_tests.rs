@@ -44,7 +44,7 @@ fn parity_ngram_scoring_example() {
     let tokens = vec!["你".to_string(), "好".to_string()];
     // Use interpolation weights that favor bigram like upstream examples.
     // The core API expects a Config reference for interpolation weights.
-    let cfg = Config {
+    let cfg = libchinese_core::Config {
         fuzzy: vec![],
         unigram_weight: 0.3,
         bigram_weight: 0.6,
@@ -52,6 +52,11 @@ fn parity_ngram_scoring_example() {
         sort_by_phrase_length: false,
         sort_without_longer_candidate: false,
         max_cache_size: 1000,
+        auto_suggestion: false,
+        max_prediction_length: 3,
+        min_prediction_frequency: 0.0,
+        prefer_phrase_predictions: false,
+        min_suggestion_trigger_length: 2,
     };
     let score = m.score_sequence(&tokens, &cfg);
 

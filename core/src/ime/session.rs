@@ -4,10 +4,10 @@
 //! composition, candidates) into a cohesive session that tracks state across
 //! multiple key events.
 
-use crate::input_buffer::InputBuffer;
-use crate::composition::Composition;
-use crate::candidates::CandidateList;
-use crate::context::ImeContext;
+use super::input_buffer::InputBuffer;
+use super::composition::Composition;
+use super::candidates::CandidateList;
+use super::context::ImeContext;
 
 /// Current input mode of the IME session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -202,7 +202,7 @@ impl Default for ImeSession {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::candidates::Candidate;
+    use crate::Candidate;
 
     #[test]
     fn test_new_session() {
@@ -264,9 +264,9 @@ mod tests {
         session.composition_mut().add_segment(3..5, false);
 
         let candidates = vec![
-            Candidate::new("你好"),
-            Candidate::new("尼好"),
-            Candidate::new("你豪"),
+            Candidate::new("你好", 1.0),
+            Candidate::new("尼好", 0.9),
+            Candidate::new("你豪", 0.8),
         ];
         session.candidates_mut().set_candidates(candidates);
 
@@ -287,7 +287,7 @@ mod tests {
 
         // Create 5 candidates (3 pages with page size 2)
         let candidates: Vec<_> = (0..5)
-            .map(|i| Candidate::new(format!("候选{}", i)))
+            .map(|i| Candidate::new(format!("候选{}", i), 1.0 - i as f32 * 0.1))
             .collect();
         session.candidates_mut().set_candidates(candidates);
 
@@ -337,7 +337,7 @@ mod tests {
         session.set_mode(InputMode::Phonetic);
         session.input_buffer_mut().insert_str("test");
         session.update_composition_from_input();
-        let candidates = vec![Candidate::new("测试")];
+        let candidates = vec![Candidate::new("测试", 1.0)];
         session.candidates_mut().set_candidates(candidates);
 
         // Clear

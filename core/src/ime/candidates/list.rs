@@ -1,48 +1,7 @@
 //! Candidate list implementation with paging and selection.
 
 use std::ops::Range;
-
-/// A single candidate with text and optional metadata.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Candidate {
-    /// The candidate text (e.g., "你好")
-    pub text: String,
-    
-    /// Optional annotation or comment (e.g., pinyin "ni3 hao3")
-    pub annotation: Option<String>,
-    
-    /// Frequency or score for ranking (higher is better)
-    pub score: f64,
-}
-
-impl Candidate {
-    /// Create a new candidate with just text.
-    pub fn new(text: impl Into<String>) -> Self {
-        Self {
-            text: text.into(),
-            annotation: None,
-            score: 0.0,
-        }
-    }
-
-    /// Create a candidate with text and annotation.
-    pub fn with_annotation(text: impl Into<String>, annotation: impl Into<String>) -> Self {
-        Self {
-            text: text.into(),
-            annotation: Some(annotation.into()),
-            score: 0.0,
-        }
-    }
-
-    /// Create a candidate with text and score.
-    pub fn with_score(text: impl Into<String>, score: f64) -> Self {
-        Self {
-            text: text.into(),
-            annotation: None,
-            score,
-        }
-    }
-}
+use crate::Candidate;
 
 /// A paginated list of candidates with cursor navigation.
 #[derive(Debug, Clone)]
@@ -285,7 +244,7 @@ mod tests {
     use super::*;
 
     fn test_candidates(n: usize) -> Vec<Candidate> {
-        (0..n).map(|i| Candidate::new(format!("候选{}", i))).collect()
+        (0..n).map(|i| Candidate::new(format!("候选{}", i), 1.0 - i as f32 * 0.1)).collect()
     }
 
     #[test]
@@ -463,15 +422,8 @@ mod tests {
     }
 
     #[test]
-    fn test_candidate_with_annotation() {
-        let candidate = Candidate::with_annotation("你好", "ni3 hao3");
-        assert_eq!(candidate.text, "你好");
-        assert_eq!(candidate.annotation, Some("ni3 hao3".to_string()));
-    }
-
-    #[test]
     fn test_candidate_with_score() {
-        let candidate = Candidate::with_score("你好", 0.95);
+        let candidate = Candidate::new("你好", 0.95);
         assert_eq!(candidate.text, "你好");
         assert_eq!(candidate.score, 0.95);
     }

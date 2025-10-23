@@ -5,29 +5,33 @@
 //! input workflow.
 
 use crate::engine::Engine;
-use crate::session::ImeSession;
-use crate::ime_engine::KeyEvent;
-use crate::candidates::Candidate;
+use crate::engine::SyllableParser;
+use super::super::session::ImeSession;
+use super::super::engine::KeyEvent;
+use super::super::candidates::Candidate;
 use super::{Editor, EditorResult};
+use std::sync::Arc;
 
 /// Phonetic input editor (pinyin/zhuyin).
 ///
 /// This is the main editor for Chinese character input via phonetic typing.
 /// It takes raw pinyin/zhuyin input, queries the backend engine for candidates,
 /// and handles selection/commit.
-pub struct PhoneticEditor {
+/// 
+/// Generic over P: the parser type (PinyinParser, ZhuyinParser, etc.)
+pub struct PhoneticEditor<P: SyllableParser> {
     /// Backend engine for linguistic processing
-    backend: Engine,
+    backend: Arc<Engine<P>>,
 }
 
-impl PhoneticEditor {
+impl<P: SyllableParser> PhoneticEditor<P> {
     /// Create a new phonetic editor with the given backend.
-    pub fn new(backend: Engine) -> Self {
+    pub fn new(backend: Arc<Engine<P>>) -> Self {
         Self { backend }
     }
     
     /// Get a reference to the backend engine.
-    pub fn backend(&self) -> &Engine {
+    pub fn backend(&self) -> &Engine<P> {
         &self.backend
     }
     
@@ -134,7 +138,7 @@ impl PhoneticEditor {
     }
 }
 
-impl Editor for PhoneticEditor {
+impl<P: SyllableParser> Editor for PhoneticEditor<P> {
     fn process_key(&mut self, key: KeyEvent, session: &mut ImeSession) -> EditorResult {
         match key {
             KeyEvent::Char(ch) => self.handle_char(ch, session),
@@ -209,7 +213,7 @@ impl Editor for PhoneticEditor {
         // Convert to our Candidate type
         let candidates: Vec<Candidate> = backend_candidates
             .into_iter()
-            .map(|c| Candidate::with_score(c.text, c.score as f64))
+            .map(|c| Candidate::new(c.text, c.score as f32))
             .collect();
         
         session.candidates_mut().set_candidates(candidates);
@@ -238,9 +242,36 @@ impl Editor for PhoneticEditor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use libchinese_core::{Model, Lexicon, NGramModel, UserDict, Config};
+    use crate::{Model, Lexicon, NGramModel, UserDict, Config};
+    use crate::engine::{SyllableParser, SyllableType};
+    use std::sync::Arc;
     
-    fn test_backend() -> Engine {
+    // Minimal test parser for unit tests
+    #[derive(Clone)]
+    struct TestParser;
+    
+    impl SyllableParser for TestParser {
+        type Syllable = TestSyllable;
+        
+        fn segment_top_k(&self, _input: &str, _k: usize, _allow_fuzzy: bool) -> Vec<Vec<Self::Syllable>> {
+            vec![]
+        }
+    }
+    
+    #[derive(Clone, Debug)]
+    struct TestSyllable;
+    
+    impl SyllableType for TestSyllable {
+        fn text(&self) -> &str {
+            ""
+        }
+        
+        fn is_fuzzy(&self) -> bool {
+            false
+        }
+    }
+    
+    fn test_backend() -> Arc<Engine<TestParser>> {
         let lex = Lexicon::new();
         let ngram = NGramModel::new();
         let unique_id = std::time::SystemTime::now()
@@ -250,7 +281,7 @@ mod tests {
         let temp_path = std::env::temp_dir().join(format!("test_phonetic_{}.redb", unique_id));
         let userdict = UserDict::new(&temp_path).unwrap();
         let model = Model::new(lex, ngram, userdict, Config::default());
-        Engine::new(model)
+        Arc::new(Engine::new(model, TestParser))
     }
     
     #[test]

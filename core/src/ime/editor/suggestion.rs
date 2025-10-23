@@ -3,19 +3,22 @@
 //! This editor provides word predictions after the user commits text,
 //! using n-gram models to suggest likely next words based on context.
 
-use crate::engine::Engine;
-use crate::session::ImeSession;
-use crate::ime_engine::KeyEvent;
-use crate::candidates::Candidate;
+use crate::engine::{Engine, SyllableParser};
+use super::super::session::ImeSession;
+use super::super::engine::KeyEvent;
+use super::super::candidates::Candidate;
 use super::{Editor, EditorResult};
+use std::sync::Arc;
 
 /// Suggestion editor for predictive text.
 ///
 /// After committing text, this editor can suggest likely next words based
 /// on the previous context using n-gram predictions.
-pub struct SuggestionEditor {
+/// 
+/// Generic over P: the parser type (PinyinParser, ZhuyinParser, etc.)
+pub struct SuggestionEditor<P: SyllableParser> {
     /// Backend engine for predictions
-    backend: Engine,
+    backend: Arc<Engine<P>>,
     
     /// Previous committed text (context for predictions)
     context: String,
@@ -24,9 +27,9 @@ pub struct SuggestionEditor {
     active: bool,
 }
 
-impl SuggestionEditor {
+impl<P: SyllableParser> SuggestionEditor<P> {
     /// Create a new suggestion editor.
-    pub fn new(backend: Engine) -> Self {
+    pub fn new(backend: Arc<Engine<P>>) -> Self {
         Self {
             backend,
             context: String::new(),
@@ -75,12 +78,12 @@ impl SuggestionEditor {
     }
 }
 
-impl Editor for SuggestionEditor {
+impl<P: SyllableParser> Editor for SuggestionEditor<P> {
     fn process_key(&mut self, key: KeyEvent, session: &mut ImeSession) -> EditorResult {
         match key {
             // Character input - exit suggestion mode and switch to phonetic
             KeyEvent::Char(ch) if ch.is_ascii_lowercase() => {
-                EditorResult::ModeSwitch(crate::session::InputMode::Phonetic)
+                EditorResult::ModeSwitch(super::super::session::InputMode::Phonetic)
             }
             
             // Number selection
@@ -215,18 +218,18 @@ impl Editor for SuggestionEditor {
                 // Convert log probability to a reasonable score
                 // Higher log_prob (less negative) = better score
                 let score = (log_prob.exp() * 100.0) as f64;
-                Candidate::with_score(text, score)
+                Candidate::new(text, score as f32)
             })
             .collect();
 
         // If no predictions from n-gram, fall back to common particles
         let candidates = if candidates.is_empty() {
             vec![
-                Candidate::new("吗"),
-                Candidate::new("呢"),
-                Candidate::new("吧"),
-                Candidate::new("啊"),
-                Candidate::new("的"),
+                Candidate::new("吗", 0.1),
+                Candidate::new("呢", 0.09),
+                Candidate::new("吧", 0.08),
+                Candidate::new("啊", 0.07),
+                Candidate::new("的", 0.06),
             ]
         } else {
             candidates
@@ -255,9 +258,37 @@ impl Editor for SuggestionEditor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use libchinese_core::{Model, Lexicon, NGramModel, UserDict, Config};
+    use crate::{Model, Lexicon, NGramModel, UserDict, Config};
+    use crate::engine::{SyllableParser, SyllableType};
+    use crate::ime::session::{ImeSession, InputMode};
+    use std::sync::Arc;
     
-    fn test_backend() -> Engine {
+    // Minimal test parser for unit tests
+    #[derive(Clone)]
+    struct TestParser;
+    
+    impl SyllableParser for TestParser {
+        type Syllable = TestSyllable;
+        
+        fn segment_top_k(&self, _input: &str, _k: usize, _allow_fuzzy: bool) -> Vec<Vec<Self::Syllable>> {
+            vec![]
+        }
+    }
+    
+    #[derive(Clone, Debug)]
+    struct TestSyllable;
+    
+    impl SyllableType for TestSyllable {
+        fn text(&self) -> &str {
+            ""
+        }
+        
+        fn is_fuzzy(&self) -> bool {
+            false
+        }
+    }
+    
+    fn test_backend() -> Arc<Engine<TestParser>> {
         let lex = Lexicon::new();
         let ngram = NGramModel::new();
         let unique_id = std::time::SystemTime::now()
@@ -267,7 +298,7 @@ mod tests {
         let temp_path = std::env::temp_dir().join(format!("test_suggestion_{}.redb", unique_id));
         let userdict = UserDict::new(&temp_path).unwrap();
         let model = Model::new(lex, ngram, userdict, Config::default());
-        Engine::new(model)
+        Arc::new(Engine::new(model, TestParser))
     }
     
     #[test]
@@ -302,7 +333,7 @@ mod tests {
         let result = editor.process_key(KeyEvent::Char('n'), &mut session);
         assert!(matches!(
             result,
-            EditorResult::ModeSwitch(crate::session::InputMode::Phonetic)
+            EditorResult::ModeSwitch(InputMode::Phonetic)
         ));
     }
     

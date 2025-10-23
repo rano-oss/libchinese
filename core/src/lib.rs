@@ -33,6 +33,12 @@ pub use fuzzy::{FuzzyMap, FuzzyRule};
 pub mod engine;
 pub use engine::{Engine, SyllableParser, SyllableType};
 
+pub mod ime;
+pub use ime::{
+    ImeEngine, ImeSession, ImeContext, InputMode, KeyEvent, KeyResult,
+    PhoneticEditor, PunctuationEditor, SuggestionEditor,
+};
+
 /// A single text candidate with an associated score.
 ///
 /// Scores are on a relative scale; higher is better. Use `f32` for compactness

@@ -5,10 +5,11 @@
 //! IME state across multiple interactions. It uses a pluggable editor
 //! architecture to support different input modes (phonetic, punctuation, suggestion).
 
-use crate::engine::Engine;
-use crate::session::{ImeSession, InputMode};
-use crate::context::ImeContext;
-use crate::editor::{Editor, EditorResult, PhoneticEditor, PunctuationEditor, SuggestionEditor};
+use crate::engine::{Engine, SyllableParser};
+use super::session::{ImeSession, InputMode};
+use super::context::ImeContext;
+use super::editor::{Editor, EditorResult, PhoneticEditor, PunctuationEditor, SuggestionEditor};
+use std::sync::Arc;
 
 /// Key event types that the IME can process.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -80,15 +81,15 @@ pub enum KeyResult {
 ///     println!("Commit: {}", context.commit_text);
 /// }
 /// ```
-pub struct ImeEngine {
+pub struct ImeEngine<P: SyllableParser> {
     /// Phonetic input editor
-    phonetic_editor: PhoneticEditor,
+    phonetic_editor: PhoneticEditor<P>,
     
     /// Punctuation selection editor
     punct_editor: PunctuationEditor,
     
     /// Suggestion/prediction editor
-    suggestion_editor: SuggestionEditor,
+    suggestion_editor: SuggestionEditor<P>,
     
     /// Session state
     session: ImeSession,
@@ -97,9 +98,23 @@ pub struct ImeEngine {
     context: ImeContext,
 }
 
-impl ImeEngine {
+impl<P: SyllableParser> ImeEngine<P> {
     /// Create a new IME engine with the given backend.
-    pub fn new(backend: Engine) -> Self {
+    pub fn new(backend: Engine<P>) -> Self {
+        let backend_arc = Arc::new(backend);
+        Self {
+            phonetic_editor: PhoneticEditor::new(backend_arc.clone()),
+            punct_editor: PunctuationEditor::new(),
+            suggestion_editor: SuggestionEditor::new(backend_arc),
+            session: ImeSession::with_page_size(5),
+            context: ImeContext::new(),
+        }
+    }
+
+    /// Create a new IME engine from an Arc-wrapped backend.
+    /// 
+    /// This is useful when you already have an Arc<Engine<P>> from another source.
+    pub fn from_arc(backend: Arc<Engine<P>>) -> Self {
         Self {
             phonetic_editor: PhoneticEditor::new(backend.clone()),
             punct_editor: PunctuationEditor::new(),
@@ -110,8 +125,15 @@ impl ImeEngine {
     }
 
     /// Create an IME engine with specified candidate page size.
-    pub fn with_page_size(backend: Engine, page_size: usize) -> Self {
+    pub fn with_page_size(backend: Engine<P>, page_size: usize) -> Self {
         let mut engine = Self::new(backend);
+        engine.session = ImeSession::with_page_size(page_size);
+        engine
+    }
+    
+    /// Create an IME engine from Arc with specified candidate page size.
+    pub fn from_arc_with_page_size(backend: Arc<Engine<P>>, page_size: usize) -> Self {
+        let mut engine = Self::from_arc(backend);
         engine.session = ImeSession::with_page_size(page_size);
         engine
     }
@@ -373,9 +395,35 @@ impl ImeEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use libchinese_core::{Model, Lexicon, NGramModel, UserDict, Config};
+    use crate::{Model, Lexicon, NGramModel, UserDict, Config};
+    use crate::engine::{SyllableParser, SyllableType};
 
-    fn test_engine() -> Engine {
+    // Minimal test parser for unit tests
+    #[derive(Clone)]
+    struct TestParser;
+    
+    impl SyllableParser for TestParser {
+        type Syllable = TestSyllable;
+        
+        fn segment_top_k(&self, _input: &str, _k: usize, _allow_fuzzy: bool) -> Vec<Vec<Self::Syllable>> {
+            vec![]
+        }
+    }
+    
+    #[derive(Clone, Debug)]
+    struct TestSyllable;
+    
+    impl SyllableType for TestSyllable {
+        fn text(&self) -> &str {
+            ""
+        }
+        
+        fn is_fuzzy(&self) -> bool {
+            false
+        }
+    }
+
+    fn test_engine() -> Engine<TestParser> {
         // Create a minimal engine for testing with unique temp file
         let lex = Lexicon::new();
         let ngram = NGramModel::new();
@@ -387,7 +435,7 @@ mod tests {
         let temp_path = std::env::temp_dir().join(format!("test_userdict_{}.redb", unique_id));
         let userdict = UserDict::new(&temp_path).unwrap();
         let model = Model::new(lex, ngram, userdict, Config::default());
-        Engine::new(model)
+        Engine::new(model, TestParser)
     }
 
     #[test]

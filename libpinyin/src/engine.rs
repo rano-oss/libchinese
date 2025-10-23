@@ -442,6 +442,13 @@ impl Engine {
             inner: Arc::new(libchinese_core::Engine::new(model, parser)),
         }
     }
+    
+    /// Get a cloned Arc to the inner core engine.
+    /// 
+    /// Useful for sharing the engine with ImeEngine and other components.
+    pub fn inner_arc(&self) -> Arc<libchinese_core::Engine<Parser>> {
+        Arc::clone(&self.inner)
+    }
 
     /// Load an engine from a model directory containing runtime artifacts.
     ///

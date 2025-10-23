@@ -6,6 +6,7 @@
 //! This is now a thin wrapper around the generic core::Engine<ZhuyinParser>.
 
 use std::error::Error;
+use std::sync::Arc;
 
 use crate::parser::ZhuyinParser;
 use libchinese_core::{Candidate, Model, Lexicon, NGramModel, UserDict, Interpolator};
@@ -60,9 +61,15 @@ pub const ZHUYIN_SYLLABLES: &[&str] = &[
     "ㄩ", "ㄩㄝ", "ㄩㄢ", "ㄩㄣ", "ㄩㄥ",
 ];
 
-/// Public engine for libzhuyin
+/// Public engine for libzhuyin.
+///
+/// This wraps the generic core::Engine<ZhuyinParser> with zhuyin-specific loading logic.
+/// All actual IME logic (segmentation, fuzzy matching, caching, scoring) is in core.
+/// 
+/// The inner engine is wrapped in Arc to allow cheap cloning for sharing across editors.
+#[derive(Clone)]
 pub struct Engine {
-    inner: libchinese_core::Engine<ZhuyinParser>,
+    inner: Arc<libchinese_core::Engine<ZhuyinParser>>,
 }
 
 impl Engine {
@@ -74,8 +81,15 @@ impl Engine {
         let fuzzy_rules = crate::standard_fuzzy_rules();
         let parser = ZhuyinParser::new(fuzzy_rules, ZHUYIN_SYLLABLES);
         Self {
-            inner: libchinese_core::Engine::new(model, parser),
+            inner: Arc::new(libchinese_core::Engine::new(model, parser)),
         }
+    }
+    
+    /// Get a cloned Arc to the inner core engine.
+    /// 
+    /// Useful for sharing the engine with ImeEngine and other components.
+    pub fn inner_arc(&self) -> Arc<libchinese_core::Engine<ZhuyinParser>> {
+        Arc::clone(&self.inner)
     }
 
     /// Load an engine from a model directory containing runtime artifacts.
@@ -149,10 +163,30 @@ impl Engine {
         let hit_rate = if total > 0 { hits as f64 / total as f64 } else { 0.0 };
         (hits, misses, hit_rate)
     }
+    
+    /// Get current cache size
+    pub fn cache_size(&self) -> usize {
+        self.inner.cache_size()
+    }
 
     /// Clear the cache
-    pub fn clear_cache(&mut self) {
+    pub fn clear_cache(&self) {
         self.inner.clear_cache();
+    }
+    
+    /// Get a reference to the ngram model
+    pub fn ngram(&self) -> &NGramModel {
+        self.inner.ngram()
+    }
+    
+    /// Get a reference to the user dictionary
+    pub fn userdict(&self) -> &UserDict {
+        self.inner.userdict()
+    }
+    
+    /// Get a reference to the config
+    pub fn config(&self) -> &libchinese_core::Config {
+        self.inner.config()
     }
 
     /// Commit a phrase to the user dictionary (learning).
@@ -184,4 +218,186 @@ impl Engine {
     pub fn input(&self, input: &str) -> Vec<Candidate> {
         self.inner.input(input)
     }
+}
+
+/// Create an IME engine with HSU keyboard layout fuzzy rules.
+///
+/// HSU layout is optimized for efficiency with finals on the home row.
+/// Common typing errors: ㄓ/ㄐ (j key), ㄔ/ㄑ (q key), ㄕ/ㄒ (x key).
+///
+/// # Arguments
+/// * `data_dir` - Path to directory containing zhuyin data files
+/// * `page_size` - Number of candidates to show per page (typically 5-9)
+///
+/// # Returns
+/// `ImeEngine<ZhuyinParser>` configured with HSU fuzzy rules
+///
+/// # Example
+/// ```no_run
+/// use libzhuyin::create_ime_engine_hsu;
+/// 
+/// let ime = create_ime_engine_hsu("data/zhuyin", 9).unwrap();
+/// // Now ready to process bopomofo input
+/// ```
+pub fn create_ime_engine_hsu<P: AsRef<std::path::Path>>(
+    data_dir: P,
+    page_size: usize,
+) -> Result<libchinese_core::ime::ImeEngine<ZhuyinParser>, Box<dyn Error>> {
+    let data_dir = data_dir.as_ref();
+    
+    // Load model from data directory
+    let fst_path = data_dir.join("zhuyin.fst");
+    let bincode_path = data_dir.join("zhuyin.redb");
+    let lex = Lexicon::load_from_fst_bincode(&fst_path, &bincode_path)?;
+    
+    // Load interpolator
+    let fst_path = data_dir.join("zhuyin.lambdas.fst");
+    let bincode_path = data_dir.join("zhuyin.lambdas.redb");
+    let interp = Interpolator::load(&fst_path, &bincode_path)?;
+    
+    // Load ngram
+    let ng_path = data_dir.join("ngram.bincode");
+    let mut ngram = if ng_path.exists() {
+        NGramModel::load_bincode(&ng_path)?
+    } else {
+        NGramModel::new()
+    };
+    ngram.set_interpolator(interp);
+    
+    // User dictionary
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .unwrap_or_else(|_| ".".to_string());
+    let ud_path = std::path::PathBuf::from(home)
+        .join(".zhuyin")
+        .join("userdict.redb");
+    if let Some(parent) = ud_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let userdict = UserDict::new(&ud_path)?;
+    
+    // Create model with default config
+    let model = Model::new(lex, ngram, userdict, libchinese_core::Config::default());
+    
+    // Create parser with HSU fuzzy rules
+    let fuzzy_rules = crate::fuzzy_presets::hsu_fuzzy_rules();
+    let parser = ZhuyinParser::new(fuzzy_rules, ZHUYIN_SYLLABLES);
+    
+    // Create core engine
+    let core_engine = Arc::new(libchinese_core::Engine::new(model, parser));
+    
+    // Create IME engine
+    Ok(libchinese_core::ime::ImeEngine::from_arc_with_page_size(core_engine, page_size))
+}
+
+/// Create an IME engine with Standard keyboard layout fuzzy rules.
+///
+/// Standard layout is the most common zhuyin keyboard layout.
+/// Common typing errors: nasal finals ㄢ/ㄤ, ㄣ/ㄥ, ㄧㄣ/ㄧㄥ.
+///
+/// # Arguments
+/// * `data_dir` - Path to directory containing zhuyin data files
+/// * `page_size` - Number of candidates to show per page (typically 5-9)
+///
+/// # Returns
+/// `ImeEngine<ZhuyinParser>` configured with Standard fuzzy rules
+pub fn create_ime_engine_standard<P: AsRef<std::path::Path>>(
+    data_dir: P,
+    page_size: usize,
+) -> Result<libchinese_core::ime::ImeEngine<ZhuyinParser>, Box<dyn Error>> {
+    let data_dir = data_dir.as_ref();
+    
+    // Load model (same as HSU)
+    let fst_path = data_dir.join("zhuyin.fst");
+    let bincode_path = data_dir.join("zhuyin.redb");
+    let lex = Lexicon::load_from_fst_bincode(&fst_path, &bincode_path)?;
+    
+    let fst_path = data_dir.join("zhuyin.lambdas.fst");
+    let bincode_path = data_dir.join("zhuyin.lambdas.redb");
+    let interp = Interpolator::load(&fst_path, &bincode_path)?;
+    
+    let ng_path = data_dir.join("ngram.bincode");
+    let mut ngram = if ng_path.exists() {
+        NGramModel::load_bincode(&ng_path)?
+    } else {
+        NGramModel::new()
+    };
+    ngram.set_interpolator(interp);
+    
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .unwrap_or_else(|_| ".".to_string());
+    let ud_path = std::path::PathBuf::from(home)
+        .join(".zhuyin")
+        .join("userdict.redb");
+    if let Some(parent) = ud_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let userdict = UserDict::new(&ud_path)?;
+    
+    let model = Model::new(lex, ngram, userdict, libchinese_core::Config::default());
+    
+    // Create parser with Standard fuzzy rules
+    let fuzzy_rules = crate::fuzzy_presets::standard_fuzzy_rules();
+    let parser = ZhuyinParser::new(fuzzy_rules, ZHUYIN_SYLLABLES);
+    
+    let core_engine = Arc::new(libchinese_core::Engine::new(model, parser));
+    
+    Ok(libchinese_core::ime::ImeEngine::from_arc_with_page_size(core_engine, page_size))
+}
+
+/// Create an IME engine with ETEN keyboard layout fuzzy rules.
+///
+/// ETEN layout is used in ETEN Chinese System (倚天中文系統).
+/// Similar error patterns to Standard layout.
+///
+/// # Arguments
+/// * `data_dir` - Path to directory containing zhuyin data files
+/// * `page_size` - Number of candidates to show per page (typically 5-9)
+///
+/// # Returns
+/// `ImeEngine<ZhuyinParser>` configured with ETEN fuzzy rules
+pub fn create_ime_engine_eten<P: AsRef<std::path::Path>>(
+    data_dir: P,
+    page_size: usize,
+) -> Result<libchinese_core::ime::ImeEngine<ZhuyinParser>, Box<dyn Error>> {
+    let data_dir = data_dir.as_ref();
+    
+    // Load model (same as HSU/Standard)
+    let fst_path = data_dir.join("zhuyin.fst");
+    let bincode_path = data_dir.join("zhuyin.redb");
+    let lex = Lexicon::load_from_fst_bincode(&fst_path, &bincode_path)?;
+    
+    let fst_path = data_dir.join("zhuyin.lambdas.fst");
+    let bincode_path = data_dir.join("zhuyin.lambdas.redb");
+    let interp = Interpolator::load(&fst_path, &bincode_path)?;
+    
+    let ng_path = data_dir.join("ngram.bincode");
+    let mut ngram = if ng_path.exists() {
+        NGramModel::load_bincode(&ng_path)?
+    } else {
+        NGramModel::new()
+    };
+    ngram.set_interpolator(interp);
+    
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .unwrap_or_else(|_| ".".to_string());
+    let ud_path = std::path::PathBuf::from(home)
+        .join(".zhuyin")
+        .join("userdict.redb");
+    if let Some(parent) = ud_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let userdict = UserDict::new(&ud_path)?;
+    
+    let model = Model::new(lex, ngram, userdict, libchinese_core::Config::default());
+    
+    // Create parser with ETEN fuzzy rules
+    let fuzzy_rules = crate::fuzzy_presets::eten_fuzzy_rules();
+    let parser = ZhuyinParser::new(fuzzy_rules, ZHUYIN_SYLLABLES);
+    
+    let core_engine = Arc::new(libchinese_core::Engine::new(model, parser));
+    
+    Ok(libchinese_core::ime::ImeEngine::from_arc_with_page_size(core_engine, page_size))
 }
