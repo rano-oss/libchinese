@@ -74,6 +74,20 @@ pub struct Config {
     /// Filter out candidates longer than input
     pub sort_without_longer_candidate: bool,
     
+    // Prediction Settings (for predict_next feature)
+    /// Maximum phrase length for predictions (1-5 characters)
+    pub max_prediction_length: usize,
+    /// Minimum log probability threshold for predictions (-20.0 to 0.0)
+    pub min_prediction_frequency: f64,
+    /// Prefer 2-character phrases in prediction ranking
+    pub prefer_phrase_predictions: bool,
+    
+    // Suggestion Mode Settings
+    /// Automatically enter suggestion mode after committing text
+    pub auto_suggestion: bool,
+    /// Minimum committed text length to trigger auto-suggestion (chars)
+    pub min_suggestion_trigger_length: usize,
+    
     // Cache Management
     /// Maximum number of entries in the input -> candidates cache
     pub max_cache_size: usize,
@@ -90,6 +104,13 @@ impl Default for Config {
             // Advanced ranking - disabled by default (score-only sorting)
             sort_by_phrase_length: false,
             sort_without_longer_candidate: false,
+            // Prediction settings - favor 2-char phrases, moderate filtering
+            max_prediction_length: 3,
+            min_prediction_frequency: -15.0,
+            prefer_phrase_predictions: true,
+            // Suggestion mode - auto-enter after commits of 2+ chars
+            auto_suggestion: true,
+            min_suggestion_trigger_length: 2,
             // Cache management - 1000 entries is reasonable for most IME use
             max_cache_size: 1000,
         }

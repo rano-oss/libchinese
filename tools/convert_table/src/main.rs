@@ -532,6 +532,11 @@ fn main() -> Result<()> {
     let zhuyin_tables = [
         ("tsi", zhuyin_dir.join("tsi.table")),
     ];
+    
+    // 4) emoji: emoji.table (pinyin keywords)
+    let emoji_tables = [
+        ("emoji", data_dir.join("emoji.table")),
+    ];
 
     // Build simplified (pinyin syllable tokenization)
     build_fst_and_bincode(&simplified_tables, &out_dir.join("simplified"), "pinyin_syllable", "original")?;
@@ -541,6 +546,14 @@ fn main() -> Result<()> {
 
     // Build zhuyin (character tokenization, keep zhuyin/bopomofo keys)
     build_fst_and_bincode(&zhuyin_tables, &out_dir.join("zhuyin_traditional"), "char", "zhuyin")?;
+    
+    // Build emoji (pinyin syllable tokenization, original keys)
+    if data_dir.join("emoji.table").exists() {
+        println!("Building emoji lexicon...");
+        build_fst_and_bincode(&emoji_tables, &out_dir.join("emoji"), "pinyin_syllable", "original")?;
+    } else {
+        println!("Skipping emoji (emoji.table not found)");
+    }
 
     // No global placeholders here; each dataset has its own ngram/interp artifacts.
 

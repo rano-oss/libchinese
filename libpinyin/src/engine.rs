@@ -6,6 +6,7 @@
 //! This is now a thin wrapper around the generic core::Engine<Parser>.
 
 use std::error::Error;
+use std::sync::Arc;
 
 use crate::parser::Parser;
 use libchinese_core::{Candidate, Interpolator, Model, Lexicon, NGramModel, UserDict};
@@ -14,8 +15,11 @@ use libchinese_core::{Candidate, Interpolator, Model, Lexicon, NGramModel, UserD
 ///
 /// This wraps the generic core::Engine<Parser> with pinyin-specific loading logic.
 /// All actual IME logic (segmentation, fuzzy matching, caching, scoring) is in core.
+/// 
+/// The inner engine is wrapped in Arc to allow cheap cloning for sharing across editors.
+#[derive(Clone)]
 pub struct Engine {
-    inner: libchinese_core::Engine<Parser>,
+    inner: Arc<libchinese_core::Engine<Parser>>,
 }
 
 /// All standard pinyin syllables (without tone markers).
@@ -435,7 +439,7 @@ impl Engine {
     pub fn new(model: Model) -> Self {
         let parser = Parser::with_syllables(PINYIN_SYLLABLES);
         Self {
-            inner: libchinese_core::Engine::new(model, parser),
+            inner: Arc::new(libchinese_core::Engine::new(model, parser)),
         }
     }
 
@@ -539,6 +543,27 @@ impl Engine {
     /// ```
     pub fn commit(&self, phrase: &str) {
         self.inner.commit(phrase);
+    }
+
+    /// Get reference to the n-gram model for predictions.
+    ///
+    /// This allows direct access to the n-gram model for features like
+    /// next-character prediction in suggestion mode.
+    pub fn ngram(&self) -> &NGramModel {
+        self.inner.ngram()
+    }
+
+    /// Get reference to the user dictionary for learning.
+    ///
+    /// Provides access to user-learned data including user bigrams
+    /// for personalized predictions.
+    pub fn userdict(&self) -> &UserDict {
+        self.inner.userdict()
+    }
+
+    /// Get reference to the configuration.
+    pub fn config(&self) -> &libchinese_core::Config {
+        self.inner.config()
     }
 
     /// Main input API. Returns ranked `Candidate` items for the given raw input.

@@ -44,8 +44,6 @@ fn build_demo_engine() -> Engine {
 
     let cfg = libzhuyin::ZhuyinConfig::default().into_base();
     let model = Model::new(lx, ng, user, cfg);
-    
-    // Parser is created internally using ZHUYIN_SYLLABLES
     Engine::new(model)
 }
 

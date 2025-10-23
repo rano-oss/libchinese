@@ -230,4 +230,25 @@ impl<P: SyllableParser> Engine<P> {
         *self.cache_hits.borrow_mut() = 0;
         *self.cache_misses.borrow_mut() = 0;
     }
+
+    /// Get reference to the n-gram model.
+    ///
+    /// Provides direct access to the n-gram model for features like
+    /// next-character prediction.
+    pub fn ngram(&self) -> &crate::NGramModel {
+        &self.model.ngram
+    }
+
+    /// Get reference to the user dictionary.
+    ///
+    /// Provides access to user-learned data including user bigrams
+    /// for personalized predictions.
+    pub fn userdict(&self) -> &crate::UserDict {
+        &self.model.userdict
+    }
+
+    /// Get reference to the configuration.
+    pub fn config(&self) -> &crate::Config {
+        &self.model.config
+    }
 }

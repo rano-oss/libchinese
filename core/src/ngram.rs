@@ -264,6 +264,237 @@ impl NGramModel {
         effective_uw * unigram_prob + effective_bw * bigram_prob + effective_tw * trigram_prob
     }
 
+    /// Predict next most likely characters or phrases given context.
+    ///
+    /// Given 1-2 previous characters as context, returns the top `count` most
+    /// likely next characters/phrases with their log probabilities. Supports
+    /// multi-character phrase predictions by building phrases from consecutive
+    /// character bigrams/trigrams.
+    ///
+    /// # Arguments
+    /// * `context` - The previous 1-2 characters as context (e.g., "你好")
+    /// * `count` - Maximum number of predictions to return
+    /// * `cfg` - Configuration for weights and parameters (optional, uses defaults if None)
+    ///
+    /// # Returns
+    /// Vector of (text, score) tuples sorted by descending probability.
+    /// Score is the log probability (higher = more likely).
+    /// Results may include both single characters and multi-character phrases.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let predictions = model.predict_next("你好", 5, None);
+    /// // Returns: [("吗", -2.3), ("呢", -3.1), ("的话", -3.5), ...]
+    /// ```
+    pub fn predict_next(&self, context: &str, count: usize, cfg: Option<&crate::Config>) -> Vec<(String, f64)> {
+        self.predict_next_with_user(context, count, cfg, None)
+    }
+
+    /// Predict next with user bigram learning integrated.
+    ///
+    /// This is the enhanced version that merges user-learned bigrams with the
+    /// static n-gram model, similar to upstream libpinyin's approach.
+    ///
+    /// # Arguments
+    /// * `context` - The previous 1-2 characters as context
+    /// * `count` - Maximum number of predictions to return
+    /// * `cfg` - Configuration for weights and parameters
+    /// * `userdict` - Optional UserDict for personalized predictions
+    ///
+    /// # Returns
+    /// Vector of (text, score) tuples with user learning boost applied.
+    pub fn predict_next_with_user(
+        &self,
+        context: &str,
+        count: usize,
+        cfg: Option<&crate::Config>,
+        userdict: Option<&crate::UserDict>
+    ) -> Vec<(String, f64)> {
+        if count == 0 {
+            return vec![];
+        }
+
+        // Extract configuration parameters
+        let max_phrase_len = cfg.map(|c| c.max_prediction_length).unwrap_or(3);
+        let min_frequency_threshold = cfg.map(|c| c.min_prediction_frequency).unwrap_or(-15.0);
+        let prefer_phrases = cfg.map(|c| c.prefer_phrase_predictions).unwrap_or(true);
+        let user_boost = 2.0; // Log-space boost for user-learned bigrams (e^2 ≈ 7.4x)
+
+        // Extract last 1-2 characters from context
+        let chars: Vec<char> = context.chars().collect();
+        let context_len = chars.len();
+
+        // Build candidate list by querying bigram/trigram tables
+        let mut candidates: HashMap<String, f64> = HashMap::new();
+
+        // Track which candidates have trigram scores (higher priority)
+        let mut has_trigram: HashMap<String, bool> = HashMap::new();
+
+        if context_len >= 2 {
+            // Use trigram: P(w3 | w1, w2)
+            let w1 = chars[context_len - 2].to_string();
+            let w2 = chars[context_len - 1].to_string();
+
+            // Search all trigrams starting with (w1, w2, *)
+            for ((tw1, tw2, tw3), log_p) in &self.trigram {
+                if tw1 == &w1 && tw2 == &w2 && *log_p >= min_frequency_threshold {
+                    // Found a trigram match - this is highest priority
+                    candidates.insert(tw3.clone(), *log_p);
+                    has_trigram.insert(tw3.clone(), true);
+                }
+            }
+        }
+
+        if context_len >= 1 {
+            // Use bigram: P(w2 | w1) - only for candidates without trigram
+            let w1 = chars[context_len - 1].to_string();
+
+            // Search all bigrams starting with (w1, *)
+            for ((bw1, bw2), log_p) in &self.bigram {
+                if bw1 == &w1 && *log_p >= min_frequency_threshold {
+                    // Only use bigram if we don't already have trigram for this candidate
+                    if !has_trigram.contains_key(bw2) {
+                        candidates.insert(bw2.clone(), *log_p);
+                    }
+                }
+            }
+        }
+
+        // Merge user bigrams if available (boost user-learned patterns)
+        if let Some(ud) = userdict {
+            if context_len >= 1 {
+                let w1 = chars[context_len - 1].to_string();
+                let user_bigrams = ud.get_bigrams_after(&w1);
+                
+                for (w2, count) in user_bigrams {
+                    // Convert count to log probability with boost
+                    // Higher count = stronger boost
+                    let user_score = user_boost + (count as f64).ln();
+                    
+                    // If candidate exists, boost it; otherwise add it
+                    candidates.entry(w2.clone())
+                        .and_modify(|score| *score += user_score)
+                        .or_insert(user_score + min_frequency_threshold);
+                }
+            }
+        }
+
+        // Build multi-character phrases by extending single-char candidates
+        if max_phrase_len > 1 {
+            let phrase_candidates = self.build_phrase_candidates(
+                context,
+                &candidates,
+                max_phrase_len,
+                min_frequency_threshold
+            );
+            candidates.extend(phrase_candidates);
+        }
+
+        // If we have very few candidates, add top unigrams as fallback
+        if candidates.len() < count {
+            for (w, log_p) in &self.unigram {
+                if !candidates.contains_key(w) && *log_p >= min_frequency_threshold {
+                    // Add with penalty since it's just unigram
+                    candidates.insert(w.clone(), log_p - 2.0);
+                }
+                
+                // Stop if we have enough candidates
+                if candidates.len() >= count * 2 {
+                    break;
+                }
+            }
+        }
+
+        // Sort with phrase length preference if enabled
+        let mut results: Vec<(String, f64)> = candidates.into_iter().collect();
+        
+        if prefer_phrases {
+            // Sort by: 2-char phrases first, then by score, then other lengths by score
+            results.sort_by(|a, b| {
+                let a_len = a.0.chars().count();
+                let b_len = b.0.chars().count();
+                
+                // Prefer 2-character phrases
+                match (a_len, b_len) {
+                    (2, 2) => b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal),
+                    (2, _) => std::cmp::Ordering::Less,
+                    (_, 2) => std::cmp::Ordering::Greater,
+                    _ => b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal),
+                }
+            });
+        } else {
+            // Simple sort by score
+            results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        }
+        
+        results.truncate(count);
+
+        results
+    }
+
+    /// Build multi-character phrase candidates by extending single characters.
+    ///
+    /// For each single-character candidate, tries to build longer phrases (up to max_len)
+    /// by following the character bigram chain. Accumulates probability as the product
+    /// of individual character probabilities.
+    ///
+    /// # Arguments
+    /// * `context` - The current context string
+    /// * `initial_candidates` - Single-character candidates to extend
+    /// * `max_len` - Maximum phrase length to build
+    /// * `min_threshold` - Minimum log probability threshold
+    ///
+    /// # Returns
+    /// HashMap of (phrase, log_prob) for multi-character phrases
+    fn build_phrase_candidates(
+        &self,
+        _context: &str,
+        initial_candidates: &HashMap<String, f64>,
+        max_len: usize,
+        min_threshold: f64
+    ) -> HashMap<String, f64> {
+        let mut phrases: HashMap<String, f64> = HashMap::new();
+        
+        // Try to extend each single-character candidate into phrases
+        for (char1, prob1) in initial_candidates {
+            // Skip if not a single character
+            if char1.chars().count() != 1 {
+                continue;
+            }
+            
+            // Try to build 2-character phrases
+            if max_len >= 2 {
+                for ((bw1, bw2), log_p2) in &self.bigram {
+                    if bw1 == char1 && *log_p2 >= min_threshold {
+                        let phrase = format!("{}{}", char1, bw2);
+                        let phrase_prob = prob1 + log_p2; // P(c1) * P(c2|c1) in log space
+                        
+                        // Only add if it meets threshold
+                        if phrase_prob >= min_threshold {
+                            phrases.insert(phrase.clone(), phrase_prob);
+                            
+                            // Try to extend to 3-character phrases
+                            if max_len >= 3 {
+                                for ((bw1_next, bw2_next), log_p3) in &self.bigram {
+                                    if bw1_next == bw2 && *log_p3 >= min_threshold {
+                                        let phrase3 = format!("{}{}{}", char1, bw2, bw2_next);
+                                        let phrase3_prob = phrase_prob + log_p3;
+                                        
+                                        if phrase3_prob >= min_threshold {
+                                            phrases.insert(phrase3, phrase3_prob);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        phrases
+    }
+
     /// Score a token sequence but consult the internal Interpolator for per-key lambdas.
     ///
     /// `key_for_lookup` is passed to the interpolator to find a per-key lambda
@@ -547,6 +778,11 @@ mod tests {
         trigram_weight: 0.1,
         sort_by_phrase_length: false,
         sort_without_longer_candidate: false,
+        max_prediction_length: 3,
+        min_prediction_frequency: -15.0,
+        prefer_phrase_predictions: true,
+        auto_suggestion: true,
+        min_suggestion_trigger_length: 2,
         max_cache_size: 1000,
     };
     let score = m.score_sequence(&tokens, &cfg);
@@ -590,5 +826,265 @@ mod tests {
         // sanity checks: lambda is finite and within [0,1]
         assert!(lambda.is_finite());
         assert!(lambda >= 0.0 && lambda <= 1.0);
+    }
+
+    #[test]
+    fn predict_next_basic() {
+        let mut m = NGramModel::new();
+        
+        // Build a small model with context
+        m.insert_unigram("的", -1.0);
+        m.insert_unigram("是", -1.5);
+        m.insert_unigram("吗", -2.0);
+        m.insert_unigram("呢", -2.5);
+        
+        // Bigrams following "好"
+        m.insert_bigram("好", "的", -0.5);
+        m.insert_bigram("好", "吗", -1.0);
+        m.insert_bigram("好", "呢", -1.5);
+        
+        // Trigrams following "你好"
+        m.insert_trigram("你", "好", "吗", -0.3);
+        m.insert_trigram("你", "好", "呢", -0.8);
+        
+        // Test with 2-char context (should use trigram)
+        let predictions = m.predict_next("你好", 3, None);
+        
+        // Should have predictions
+        assert!(!predictions.is_empty());
+        assert!(predictions.len() <= 3);
+        
+        // "吗" should be first (best trigram score)
+        assert_eq!(predictions[0].0, "吗");
+        
+        // Scores should be in descending order
+        for i in 1..predictions.len() {
+            assert!(predictions[i-1].1 >= predictions[i].1);
+        }
+    }
+
+    #[test]
+    fn predict_next_with_bigram_context() {
+        let mut m = NGramModel::new();
+        
+        // Bigrams only
+        m.insert_bigram("好", "的", -0.5);
+        m.insert_bigram("好", "吗", -1.0);
+        m.insert_bigram("好", "是", -1.5);
+        
+        // Test with 1-char context
+        let predictions = m.predict_next("好", 2, None);
+        
+        assert!(!predictions.is_empty());
+        assert!(predictions.len() <= 2);
+        
+        // "的" should be first (best bigram score)
+        assert_eq!(predictions[0].0, "的");
+    }
+
+    #[test]
+    fn predict_next_empty_context() {
+        let mut m = NGramModel::new();
+        
+        m.insert_unigram("的", -1.0);
+        m.insert_unigram("是", -1.5);
+        
+        // Empty context should still return unigram predictions
+        let predictions = m.predict_next("", 2, None);
+        
+        assert!(!predictions.is_empty());
+        // Should fall back to unigrams
+    }
+
+    #[test]
+    fn predict_next_multi_char_phrases() {
+        let mut m = NGramModel::new();
+        
+        // Build a model that can form multi-character phrases
+        m.insert_unigram("的", -1.0);
+        m.insert_unigram("话", -2.0);
+        m.insert_unigram("说", -2.5);
+        
+        // Chain: 的 → 话 → 说 (forming "的话说")
+        m.insert_bigram("好", "的", -0.5);
+        m.insert_bigram("的", "话", -0.6);
+        m.insert_bigram("话", "说", -0.7);
+        
+        // Configure to allow phrases up to 3 chars
+        let cfg = crate::Config {
+            max_prediction_length: 3,
+            min_prediction_frequency: -15.0,
+            prefer_phrase_predictions: true,
+            ..Default::default()
+        };
+        
+        let predictions = m.predict_next("好", 10, Some(&cfg));
+        
+        assert!(!predictions.is_empty());
+        
+        // Should include both single chars and multi-char phrases
+        let has_single = predictions.iter().any(|(text, _)| text.chars().count() == 1);
+        let has_multi = predictions.iter().any(|(text, _)| text.chars().count() > 1);
+        
+        assert!(has_single, "Should have single-char predictions");
+        assert!(has_multi, "Should have multi-char phrase predictions");
+        
+        // Check that we have the expected phrases
+        let phrases: Vec<String> = predictions.iter().map(|(text, _)| text.clone()).collect();
+        assert!(phrases.contains(&"的".to_string()), "Should predict '的'");
+        assert!(phrases.contains(&"的话".to_string()), "Should predict '的话'");
+    }
+
+    #[test]
+    fn predict_next_phrase_length_preference() {
+        let mut m = NGramModel::new();
+        
+        // Single char with good score
+        m.insert_bigram("好", "的", -0.5);
+        
+        // 2-char phrase with slightly worse score
+        m.insert_bigram("好", "吗", -0.6);
+        m.insert_bigram("吗", "？", -0.7);  // Forms "吗？"
+        
+        // With phrase preference enabled, 2-char should rank higher
+        let cfg = crate::Config {
+            max_prediction_length: 2,
+            min_prediction_frequency: -15.0,
+            prefer_phrase_predictions: true,
+            ..Default::default()
+        };
+        
+        let predictions = m.predict_next("好", 5, Some(&cfg));
+        
+        // Find 2-char phrases
+        let two_char_phrases: Vec<_> = predictions.iter()
+            .filter(|(text, _)| text.chars().count() == 2)
+            .collect();
+        
+        if !two_char_phrases.is_empty() {
+            // If we have 2-char phrases, they should appear early
+            let first_two_char_idx = predictions.iter()
+                .position(|(text, _)| text.chars().count() == 2);
+            let first_single_char_idx = predictions.iter()
+                .position(|(text, _)| text.chars().count() == 1);
+            
+            if let (Some(two_idx), Some(single_idx)) = (first_two_char_idx, first_single_char_idx) {
+                // 2-char should come before single char when preference is enabled
+                assert!(two_idx < single_idx, 
+                    "2-char phrases should rank higher with prefer_phrase_predictions");
+            }
+        }
+    }
+
+    #[test]
+    fn predict_next_frequency_filtering() {
+        let mut m = NGramModel::new();
+        
+        // High frequency prediction
+        m.insert_bigram("好", "的", -0.5);
+        
+        // Low frequency prediction (below typical threshold)
+        m.insert_bigram("好", "哉", -18.0);  // Very rare
+        
+        // Configure with moderate threshold
+        let cfg = crate::Config {
+            max_prediction_length: 1,
+            min_prediction_frequency: -15.0,
+            prefer_phrase_predictions: false,
+            ..Default::default()
+        };
+        
+        let predictions = m.predict_next("好", 10, Some(&cfg));
+        
+        // Should include high frequency
+        assert!(predictions.iter().any(|(text, _)| text == "的"));
+        
+        // Should NOT include very low frequency
+        assert!(!predictions.iter().any(|(text, _)| text == "哉"));
+    }
+
+    #[test]
+    fn predict_next_with_user_learning() {
+        let mut m = NGramModel::new();
+        
+        // Static model predictions
+        m.insert_bigram("好", "的", -0.5);
+        m.insert_bigram("好", "吗", -1.0);
+        m.insert_bigram("好", "啊", -1.5);
+        
+        // Create user dict and learn some patterns
+        let mut tmp = std::env::temp_dir();
+        tmp.push(format!(
+            "test_predict_user_{}.redb",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        
+        let userdict = crate::UserDict::new(&tmp).unwrap();
+        
+        // User frequently uses "好" → "啊" (even though static model rates it lower)
+        userdict.learn_bigram("好", "啊");
+        userdict.learn_bigram("好", "啊");
+        userdict.learn_bigram("好", "啊");
+        userdict.learn_bigram("好", "啊");
+        userdict.learn_bigram("好", "啊");  // 5 times
+        
+        // Predict without user learning
+        let predictions_static = m.predict_next("好", 5, None);
+        
+        // "的" should be first in static model
+        assert_eq!(predictions_static[0].0, "的");
+        
+        // Predict with user learning
+        let predictions_user = m.predict_next_with_user("好", 5, None, Some(&userdict));
+        
+        // "啊" should get a significant boost and rank higher
+        let ah_idx_static = predictions_static.iter()
+            .position(|(text, _)| text == "啊")
+            .unwrap();
+        let ah_idx_user = predictions_user.iter()
+            .position(|(text, _)| text == "啊")
+            .unwrap();
+        
+        // User learning should boost "啊" to a higher position
+        assert!(ah_idx_user < ah_idx_static, 
+            "User-learned bigram should rank higher: user_idx={}, static_idx={}",
+            ah_idx_user, ah_idx_static);
+    }
+
+    #[test]
+    fn predict_next_user_adds_new_candidates() {
+        let mut m = NGramModel::new();
+        
+        // Static model only has "的"
+        m.insert_bigram("好", "的", -0.5);
+        
+        // Create user dict
+        let mut tmp = std::env::temp_dir();
+        tmp.push(format!(
+            "test_predict_user_new_{}.redb",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        
+        let userdict = crate::UserDict::new(&tmp).unwrap();
+        
+        // User learns a new pattern not in static model
+        userdict.learn_bigram("好", "棒");
+        userdict.learn_bigram("好", "棒");
+        userdict.learn_bigram("好", "棒");
+        
+        // Predict with user learning
+        let predictions = m.predict_next_with_user("好", 10, None, Some(&userdict));
+        
+        // Should include both static and user-learned candidates
+        assert!(predictions.iter().any(|(text, _)| text == "的"), 
+            "Should include static model candidates");
+        assert!(predictions.iter().any(|(text, _)| text == "棒"), 
+            "Should include user-learned candidates");
     }
 }

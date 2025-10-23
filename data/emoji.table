@@ -1,0 +1,118 @@
+# Emoji Lexicon for libpinyin
+# Format: <keyword> <emoji> <id> <frequency>
+# Keywords use pinyin-style input for Chinese compatibility
+
+# Smileys & Emotion
+smile	😊	100001	10000
+laugh	😂	100002	9000
+cry	😭	100003	8000
+heart	❤️	100004	12000
+love	❤️	100005	11000
+ai	❤️	100006	10000
+wink	😉	100007	7000
+cool	😎	100008	6000
+kiss	😘	100009	8000
+happy	😄	100010	9500
+sad	😢	100011	7500
+angry	😠	100012	6000
+thinking	🤔	100013	7000
+surprised	😮	100014	5000
+sweat	😅	100015	6500
+
+# Hand gestures
+thumbsup	👍	100020	9000
+thumbsdown	👎	100021	5000
+ok	👌	100022	7000
+victory	✌️	100023	6000
+clap	👏	100024	8000
+pray	🙏	100025	7500
+muscle	💪	100026	6000
+wave	👋	100027	6500
+
+# Nature
+sun	☀️	100030	7000
+moon	🌙	100031	6000
+star	⭐	100032	8000
+fire	🔥	100033	9000
+water	💧	100034	5000
+tree	🌳	100035	4000
+flower	🌸	100036	7000
+rose	🌹	100037	6000
+
+# Food
+rice	🍚	100040	7000
+noodle	🍜	100041	6000
+beer	🍺	100042	7500
+coffee	☕	100043	8000
+tea	🍵	100044	6500
+cake	🍰	100045	7000
+apple	🍎	100046	5000
+pizza	🍕	100047	6000
+
+# Animals
+dog	🐕	100050	7000
+cat	🐱	100051	8000
+bird	🐦	100052	5000
+fish	🐟	100053	5500
+panda	🐼	100054	6000
+tiger	🐯	100055	5000
+pig	🐷	100056	5000
+cow	🐮	100057	4500
+
+# Chinese pinyin keywords
+xiao	😊	100100	8000
+ku	😭	100101	7000
+xin	❤️	100102	9000
+hao	👍	100103	8500
+zan	👍	100104	8000
+huoyan	🔥	100105	6000
+taiyang	☀️	100106	5000
+yueliang	🌙	100107	4500
+xingxing	⭐	100108	6000
+hua	🌸	100109	5500
+mifan	🍚	100110	5000
+miantiao	🍜	100111	4500
+cha	🍵	100112	5500
+kafei	☕	100113	6500
+gou	🐕	100114	6000
+mao	🐱	100115	7000
+xiongmao	🐼	100116	5500
+
+# Common expressions
+haha	😄	100200	9000
+hehe	😊	100201	8000
+wuwu	😭	100202	7000
+mua	😘	100203	6000
+666	👍	100204	8500
+niubi	👍	100205	7500
+jiayou	💪	100206	7000
+
+# Celebrations
+birthday	🎂	100210	6000
+gift	🎁	100211	6500
+celebration	🎉	100212	7000
+firework	🎆	100213	5000
+balloon	🎈	100214	5500
+
+# Weather
+rain	🌧️	100220	5000
+cloud	☁️	100221	4500
+snow	❄️	100222	4000
+thunder	⚡	100223	4500
+rainbow	🌈	100224	5000
+
+# Transport
+car	🚗	100230	6000
+train	🚆	100231	5000
+plane	✈️	100232	6000
+bike	🚲	100233	4500
+bus	🚌	100234	4500
+
+# Objects
+phone	📱	100240	7000
+computer	💻	100241	6500
+book	📖	100242	5500
+pen	✏️	100243	4000
+money	💰	100244	6500
+clock	🕐	100245	4500
+key	🔑	100246	4000
