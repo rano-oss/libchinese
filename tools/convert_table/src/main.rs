@@ -63,10 +63,8 @@ fn build_fst_and_bincode<P: AsRef<Path>>(
                         "pinyin" => {
                             // normalize each syllable produced by conversion
                             let raw = convert_zhuyin_key_to_pinyin(&key);
-                            let parts: Vec<String> = raw
-                                .split('\'')
-                                .map(normalize_pinyin_syllable)
-                                .collect();
+                            let parts: Vec<String> =
+                                raw.split('\'').map(normalize_pinyin_syllable).collect();
                             parts.join("'")
                         }
                         "zhuyin" => {
@@ -613,31 +611,29 @@ fn convert_zhuyin_syllable_to_pinyin(syll: &str) -> String {
 
     // Normalization rules for syllables starting with i/u/v
     // If starts with i + vowel -> replace leading i with y (e.g., ia -> ya, iou -> you)
-    if out.starts_with('i')
-        && out.len() >= 2 {
-            let rest = &out[1..];
-            // Only convert when rest starts with a vowel
-            if rest.starts_with('a')
-                || rest.starts_with('o')
-                || rest.starts_with('e')
-                || rest.starts_with('u')
-                || rest.starts_with('i')
-            {
-                out = format!("y{}", rest);
-            }
+    if out.starts_with('i') && out.len() >= 2 {
+        let rest = &out[1..];
+        // Only convert when rest starts with a vowel
+        if rest.starts_with('a')
+            || rest.starts_with('o')
+            || rest.starts_with('e')
+            || rest.starts_with('u')
+            || rest.starts_with('i')
+        {
+            out = format!("y{}", rest);
         }
+    }
     // If starts with u + vowel -> w prefix
-    if out.starts_with('u')
-        && out.len() >= 2 {
-            let rest = &out[1..];
-            if rest.starts_with('a')
-                || rest.starts_with('o')
-                || rest.starts_with('e')
-                || rest.starts_with('i')
-            {
-                out = format!("w{}", rest);
-            }
+    if out.starts_with('u') && out.len() >= 2 {
+        let rest = &out[1..];
+        if rest.starts_with('a')
+            || rest.starts_with('o')
+            || rest.starts_with('e')
+            || rest.starts_with('i')
+        {
+            out = format!("w{}", rest);
         }
+    }
     // If starts with v (we used v for ü), convert to yu or just u-like handling
     if out.starts_with('v') {
         let rest = &out[1..];

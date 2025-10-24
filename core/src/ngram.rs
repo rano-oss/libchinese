@@ -233,11 +233,10 @@ impl NGramModel {
         let trigram_prob = if i >= 2 {
             let prev2_token = &tokens[i - 2];
             let prev_token = &tokens[i - 1];
-            self.get_trigram(prev2_token, prev_token, token)
-                .unwrap_or({
-                    // Backoff: use bigram with penalty for unseen trigram
-                    bigram_prob + unseen_trigram_penalty
-                })
+            self.get_trigram(prev2_token, prev_token, token).unwrap_or({
+                // Backoff: use bigram with penalty for unseen trigram
+                bigram_prob + unseen_trigram_penalty
+            })
         } else {
             // Not enough context for trigram, use bigram
             bigram_prob

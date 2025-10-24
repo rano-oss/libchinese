@@ -232,8 +232,7 @@ impl ZhuyinParser {
                             // require same char-length match for this placeholder approach
                             if alt.chars().count() == substr.chars().count() {
                                 let end = pos + len;
-                                let seg_cost =
-                                    penalty * (config.fuzzy_penalty_multiplier as f32); // use fuzzy penalty from config
+                                let seg_cost = penalty * (config.fuzzy_penalty_multiplier as f32); // use fuzzy penalty from config
                                 let cand = seg_cost + dp_cost[end];
                                 if cand < dp_cost[pos] {
                                     dp_cost[pos] = cand;

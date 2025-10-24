@@ -344,10 +344,9 @@ impl Parser {
                     if cand_keys < best_num_keys[pos] {
                         return true;
                     }
-                    if cand_keys == best_num_keys[pos]
-                        && cand_dist < best_distance[pos] {
-                            return true;
-                        }
+                    if cand_keys == best_num_keys[pos] && cand_dist < best_distance[pos] {
+                        return true;
+                    }
                 }
             }
             false
@@ -466,9 +465,8 @@ impl Parser {
                                 let cand_parsed = len + best_parsed[end]; // Use original length for parsing position
                                 let cand_keys = 1 + best_num_keys[end];
                                 // Use the per-rule penalty from fuzzy map, scaled by config multiplier
-                                let fuzzy_penalty = (penalty
-                                    * (config.fuzzy_penalty_multiplier as f32))
-                                    as i32;
+                                let fuzzy_penalty =
+                                    (penalty * (config.fuzzy_penalty_multiplier as f32)) as i32;
                                 let cand_dist = fuzzy_penalty + best_distance[end];
 
                                 if should_replace(

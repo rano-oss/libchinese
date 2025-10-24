@@ -641,7 +641,10 @@ impl PunctuationEditor {
 
     /// Handle selection of a punctuation candidate.
     fn select_candidate(&mut self, session: &mut ImeSession) -> Option<String> {
-        session.candidates().selected_candidate().map(|candidate| candidate.text.clone())
+        session
+            .candidates()
+            .selected_candidate()
+            .map(|candidate| candidate.text.clone())
     }
 }
 
