@@ -1,14 +1,14 @@
 //! Cloud input support for rare phrases and predictions.
 //!
-//! **STATUS (2025-01-16)**: 
-//! - Google Input Tools API: DEPRECATED (shut down 2011)
+//! **STATUS (2025-10-24)**: 
+//! - Google Input Tools API: REMOVED (was shut down in 2011)
 //! - Baidu Input API: NOT WORKING (network failure, may need auth)
 //! - Custom endpoint: WORKING (requires user-deployed server)
 //!
 //! This module provides online prediction from cloud services.
 //! **NOTE**: Cloud input is disabled by default and is not required
-//! for normal operation. Local prediction (Priorities 1-6) provides
-//! excellent results without external dependencies.
+//! for normal operation. Local prediction provides excellent results
+//! without external dependencies.
 //!
 //! Uses `reqwest` blocking client for simplicity - no async runtime needed!
 
@@ -23,14 +23,7 @@ pub enum CloudProvider {
     /// **STATUS**: Currently not working (network failure as of 2025-01-16).
     /// May require authentication or different endpoint.
     Baidu,
-    /// Google Input Tools API
-    /// 
-    /// **DEPRECATED**: This API was shut down on May 26, 2011.
-    /// See: https://developers.google.com/transliterate
-    /// This provider is kept for historical reasons but will always return empty results.
-    #[deprecated(since = "0.1.0", note = "Google Input Tools API was shut down in 2011")]
-    Google,
-    /// Custom endpoint URL
+    /// Custom endpoint URL for user-deployed prediction server
     Custom(String),
 }
 
@@ -110,7 +103,6 @@ impl CloudInput {
     fn query_blocking(&self, pinyin: &str) -> Result<Vec<CloudCandidate>, Box<dyn std::error::Error>> {
         match &self.provider {
             CloudProvider::Baidu => self.query_baidu(pinyin),
-            CloudProvider::Google => self.query_google(pinyin),
             CloudProvider::Custom(url) => self.query_custom(url, pinyin),
         }
     }
@@ -158,41 +150,6 @@ impl CloudInput {
             .collect();
 
         Ok(results)
-    }
-
-    /// Query Google Input Tools API.
-    ///
-    /// **DEPRECATED**: Google Input Tools API was officially shut down on May 26, 2011.
-    /// See: https://developers.google.com/transliterate
-    ///
-    /// This function is kept for historical reasons but will always return empty results.
-    /// Use CloudProvider::Custom with your own server instead.
-    ///
-    /// API endpoint: https://inputtools.google.com/request (no longer functional)
-    fn query_google(&self, pinyin: &str) -> Result<Vec<CloudCandidate>, Box<dyn std::error::Error>> {
-        let url = "https://inputtools.google.com/request?text={}&itc=zh-t-i0-pinyin&num=13&cp=0&cs=1&ie=utf-8&oe=utf-8";
-        
-        let client = reqwest::blocking::Client::builder()
-            .timeout(Duration::from_millis(self.timeout_ms))
-            .build()?;
-
-        // Google API format (placeholder - may need adjustment)
-        let body = serde_json::json!({
-            "input": pinyin,
-            "itc": "zh-t-i0-pinyin",
-            "num": 13,
-        });
-
-        let response = client
-            .post(url)
-            .json(&body)
-            .send()?;
-
-        let _json: serde_json::Value = response.json()?;
-        
-        // Parse Google response format (needs verification)
-        // For now, return empty - actual format may differ
-        Ok(vec![])
     }
 
     /// Query custom endpoint.
@@ -291,11 +248,9 @@ mod tests {
     #[test]
     fn test_cloud_provider_variants() {
         let baidu = CloudProvider::Baidu;
-        let google = CloudProvider::Google;
         let custom = CloudProvider::Custom("https://example.com/api".to_string());
         
         assert_eq!(baidu, CloudProvider::Baidu);
-        assert_eq!(google, CloudProvider::Google);
         assert!(matches!(custom, CloudProvider::Custom(_)));
     }
 

@@ -784,6 +784,14 @@ mod tests {
         auto_suggestion: true,
         min_suggestion_trigger_length: 2,
         max_cache_size: 1000,
+        full_width_enabled: false,
+        select_keys: "123456789".to_string(),
+        masked_phrases: std::collections::HashSet::new(),
+        correction_penalty: 200,
+        fuzzy_penalty_multiplier: 100,
+        incomplete_penalty: 500,
+        unknown_penalty: 1000,
+        unknown_cost: 10.0,
     };
     let score = m.score_sequence(&tokens, &cfg);
 

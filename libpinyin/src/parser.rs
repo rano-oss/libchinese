@@ -202,8 +202,23 @@ impl Parser {
     /// normalized token (lowercase).
     ///
     /// For double pinyin support, use `segment_with_scheme` instead.
+    /// For custom penalty configuration, use `segment_best_with_config`.
     pub fn segment_best(&self, input: &str, allow_fuzzy: bool) -> Vec<Syllable> {
-        self.segment_with_scheme(input, allow_fuzzy, None)
+        // Use default config penalties
+        let config = libchinese_core::Config::default();
+        self.segment_with_config(input, allow_fuzzy, None, &config)
+    }
+    
+    /// Perform segmentation with custom config for penalty tuning.
+    ///
+    /// This allows callers to adjust fuzzy penalties, correction penalties, etc.
+    pub fn segment_best_with_config(
+        &self,
+        input: &str,
+        allow_fuzzy: bool,
+        config: &libchinese_core::Config,
+    ) -> Vec<Syllable> {
+        self.segment_with_config(input, allow_fuzzy, None, config)
     }
 
     /// Perform segmentation with optional double pinyin scheme conversion.
@@ -222,6 +237,18 @@ impl Parser {
         allow_fuzzy: bool,
         scheme_name: Option<&str>,
     ) -> Vec<Syllable> {
+        let config = libchinese_core::Config::default();
+        self.segment_with_config(input, allow_fuzzy, scheme_name, &config)
+    }
+    
+    /// Internal unified segmentation method with full configuration.
+    fn segment_with_config(
+        &self,
+        input: &str,
+        allow_fuzzy: bool,
+        scheme_name: Option<&str>,
+        config: &libchinese_core::Config,
+    ) -> Vec<Syllable> {
         // If double pinyin scheme specified, try to convert
         let processed_input = if let Some(scheme) = scheme_name {
             // Try to convert double pinyin to full pinyin
@@ -237,14 +264,19 @@ impl Parser {
         };
 
         // Now perform standard segmentation on the processed input
-        self.segment_best_internal(&processed_input, allow_fuzzy)
+        self.segment_best_internal(&processed_input, allow_fuzzy, config)
     }
 
     /// Internal segmentation method that does the actual DP work.
     ///
     /// This is separated out so that both segment_best and segment_with_scheme
     /// can use the same logic.
-    fn segment_best_internal(&self, input: &str, allow_fuzzy: bool) -> Vec<Syllable> {
+    fn segment_best_internal(
+        &self,
+        input: &str,
+        allow_fuzzy: bool,
+        config: &libchinese_core::Config,
+    ) -> Vec<Syllable> {
         // Normalize input: lowercase and remove whitespace
         let normalized: Vec<char> = input
             .to_ascii_lowercase()
@@ -372,8 +404,8 @@ impl Parser {
                                 let cand_cost = seg_cost + best_cost[end];
                                 let cand_parsed = len + best_parsed[end];
                                 let cand_keys = 1 + best_num_keys[end];
-                                // Correction penalty is less than fuzzy (200 vs varies)
-                                let correction_penalty = 200;
+                                // Correction penalty from config (default: 200)
+                                let correction_penalty = config.correction_penalty;
                                 let cand_dist = correction_penalty + best_distance[end];
 
                                 if should_replace(
@@ -423,8 +455,8 @@ impl Parser {
                                 let cand_cost = seg_cost + best_cost[end];
                                 let cand_parsed = len + best_parsed[end];  // Use original length for parsing position
                                 let cand_keys = 1 + best_num_keys[end];
-                                // Use the per-rule penalty from fuzzy map
-                                let fuzzy_penalty = (penalty * 100.0) as i32; // Scale to integer
+                                // Use the per-rule penalty from fuzzy map, scaled by config multiplier
+                                let fuzzy_penalty = ((penalty as f32) * (config.fuzzy_penalty_multiplier as f32)) as i32;
                                 let cand_dist = fuzzy_penalty + best_distance[end];
 
                                 if should_replace(
@@ -469,8 +501,8 @@ impl Parser {
                             let cand_cost = seg_cost + best_cost[end];
                             let cand_parsed = len + best_parsed[end];
                             let cand_keys = 1 + best_num_keys[end];
-                            // Incomplete penalty is less severe than unknown but more than fuzzy
-                            let incomplete_penalty = 500;
+                            // Incomplete penalty from config (default: 500)
+                            let incomplete_penalty = config.incomplete_penalty;
                             let cand_dist = incomplete_penalty + best_distance[end];
 
                             if should_replace(
@@ -502,11 +534,11 @@ impl Parser {
                 let end = pos + 1;
                 if !best_cost[end].is_infinite() {
                     let substr: String = normalized[pos..end].iter().collect();
-                    let seg_cost = 10.0_f32; // large penalty for unknown pieces
+                    let seg_cost = config.unknown_cost; // penalty from config (default: 10.0)
                     let cand_cost = seg_cost + best_cost[end];
                     let cand_parsed = 1 + best_parsed[end];
                     let cand_keys = 1 + best_num_keys[end];
-                    let cand_dist = 1000 + best_distance[end]; // very high distance for unknowns
+                    let cand_dist = config.unknown_penalty + best_distance[end]; // penalty from config (default: 1000)
 
                     if should_replace(
                         pos,
@@ -678,8 +710,30 @@ impl Parser {
     /// producing up to `k` distinct segmentation hypotheses.
     ///
     /// For double pinyin support, use `segment_top_k_with_scheme` instead.
+    /// For custom penalty configuration, use `segment_top_k_with_config`.
     pub fn segment_top_k(&self, input: &str, k: usize, allow_fuzzy: bool) -> Vec<Vec<Syllable>> {
-        self.segment_top_k_with_scheme(input, k, allow_fuzzy, None)
+        let config = libchinese_core::Config::default();
+        self.segment_top_k_with_config(input, k, allow_fuzzy, None, &config)
+    }
+    
+    /// Perform top-K segmentation with custom config for penalty tuning.
+    pub fn segment_top_k_with_config(
+        &self,
+        input: &str,
+        k: usize,
+        allow_fuzzy: bool,
+        scheme_name: Option<&str>,
+        config: &libchinese_core::Config,
+    ) -> Vec<Vec<Syllable>> {
+        // If double pinyin scheme specified, try to convert
+        let processed_input = if let Some(scheme) = scheme_name {
+            self.convert_double_pinyin(input, scheme)
+                .unwrap_or_else(|| input.to_string())
+        } else {
+            input.to_string()
+        };
+
+        self.segment_top_k_internal(&processed_input, k, allow_fuzzy, config)
     }
 
     /// Perform beam search segmentation with optional double pinyin scheme conversion.
@@ -698,19 +752,18 @@ impl Parser {
         allow_fuzzy: bool,
         scheme_name: Option<&str>,
     ) -> Vec<Vec<Syllable>> {
-        // If double pinyin scheme specified, try to convert
-        let processed_input = if let Some(scheme) = scheme_name {
-            self.convert_double_pinyin(input, scheme)
-                .unwrap_or_else(|| input.to_string())
-        } else {
-            input.to_string()
-        };
-
-        self.segment_top_k_internal(&processed_input, k, allow_fuzzy)
+        let config = libchinese_core::Config::default();
+        self.segment_top_k_with_config(input, k, allow_fuzzy, scheme_name, &config)
     }
 
     /// Internal beam search method that does the actual work.
-    fn segment_top_k_internal(&self, input: &str, k: usize, allow_fuzzy: bool) -> Vec<Vec<Syllable>> {
+    fn segment_top_k_internal(
+        &self,
+        input: &str,
+        k: usize,
+        allow_fuzzy: bool,
+        config: &libchinese_core::Config,
+    ) -> Vec<Vec<Syllable>> {
         // Normalize input: lowercase and remove whitespace (same as segment_best)
         let normalized: Vec<char> = input
             .to_ascii_lowercase()
@@ -862,7 +915,7 @@ impl Parser {
 
         // If no completed segmentation was found, fall back to best single segmentation
         if completed.is_empty() {
-            return vec![self.segment_best_internal(input, allow_fuzzy)];
+            return vec![self.segment_best_internal(input, allow_fuzzy, config)];
         }
 
         // Sort completed states and return top-k token sequences

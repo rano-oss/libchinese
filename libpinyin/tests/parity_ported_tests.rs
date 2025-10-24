@@ -57,6 +57,14 @@ fn parity_ngram_scoring_example() {
         min_prediction_frequency: 0.0,
         prefer_phrase_predictions: false,
         min_suggestion_trigger_length: 2,
+        full_width_enabled: false,
+        select_keys: "123456789".to_string(),
+        masked_phrases: Default::default(),
+        correction_penalty: 200,
+        fuzzy_penalty_multiplier: 100,
+        incomplete_penalty: 500,
+        unknown_penalty: 1000,
+        unknown_cost: 10.0,
     };
     let score = m.score_sequence(&tokens, &cfg);
 

@@ -503,10 +503,11 @@ impl<P: SyllableParser> Editor for SuggestionEditor<P> {
         let userdict = self.backend.userdict();
         
         // Use the enhanced prediction API with user learning
+        let config = self.backend.config();
         let predictions = ngram.predict_next_with_user(
             &prediction_context, 
             10, 
-            Some(self.backend.config()),
+            Some(&*config),
             Some(userdict)
         );
 

@@ -569,8 +569,13 @@ impl Engine {
     }
 
     /// Get reference to the configuration.
-    pub fn config(&self) -> &libchinese_core::Config {
+    pub fn config(&self) -> std::cell::Ref<libchinese_core::Config> {
         self.inner.config()
+    }
+    
+    /// Get mutable reference to the configuration.
+    pub fn config_mut(&self) -> std::cell::RefMut<libchinese_core::Config> {
+        self.inner.config_mut()
     }
 
     /// Main input API. Returns ranked `Candidate` items for the given raw input.

@@ -182,7 +182,12 @@ impl<P: SyllableParser> ImeEngine<P> {
         
         // Check if text meets minimum length requirement
         let char_count = committed_text.chars().count();
-        if char_count < config.min_suggestion_trigger_length {
+        let should_activate = char_count >= config.min_suggestion_trigger_length;
+        
+        // Drop config borrow before mutating self
+        drop(config);
+        
+        if !should_activate {
             return;
         }
         
@@ -205,6 +210,22 @@ impl<P: SyllableParser> ImeEngine<P> {
     pub fn process_key(&mut self, key: KeyEvent) -> KeyResult {
         // Clear commit text from previous key
         self.context.commit_text.clear();
+        
+        // Translate selection key characters to Number events
+        // This allows configurable selection keys (e.g., asdfghjkl vs 123456789)
+        let key = if let KeyEvent::Char(ch) = key {
+            let config = self.phonetic_editor.backend().config();
+            if let Some(index) = config.selection_key_index(ch) {
+                drop(config);
+                // Convert to 1-based number (index 0 → number 1, etc.)
+                KeyEvent::Number((index + 1) as u8)
+            } else {
+                drop(config);
+                key
+            }
+        } else {
+            key
+        };
 
         // Handle global shortcuts first (before mode routing)
         match key {
@@ -266,8 +287,17 @@ impl<P: SyllableParser> ImeEngine<P> {
         let result = match self.session.mode() {
             InputMode::Init => {
                 // Check if this is phonetic input or punctuation
-                // Accept ASCII lowercase (pinyin) or Unicode alphabetic (bopomofo/zhuyin)
-                if matches!(key, KeyEvent::Char(ch) if ch.is_ascii_lowercase() || ch.is_alphabetic()) {
+                // Accept:
+                // - ASCII lowercase (pinyin: a-z)
+                // - Bopomofo/Zhuyin characters (U+3105-U+3129)
+                // - Zhuyin tone marks (ˊˇˋ˙)
+                let is_phonetic_input = matches!(key, KeyEvent::Char(ch) if 
+                    ch.is_ascii_lowercase() 
+                    || ('\u{3105}'..='\u{3129}').contains(&ch)  // Bopomofo block
+                    || matches!(ch, 'ˊ' | 'ˇ' | 'ˋ' | '˙')      // Tone marks
+                );
+                
+                if is_phonetic_input {
                     // Activate phonetic mode
                     self.session.activate();
                     self.session.set_mode(InputMode::Phonetic);
@@ -316,6 +346,13 @@ impl<P: SyllableParser> ImeEngine<P> {
                 KeyResult::Handled
             }
             EditorResult::Commit(text) => {
+                // Apply full-width conversion if enabled
+                let text = if self.phonetic_editor.backend().config().is_fullwidth() {
+                    crate::utils::to_fullwidth(&text)
+                } else {
+                    text
+                };
+                
                 // Commit but stay active
                 self.context.commit_text = text.clone();
                 self.session.sync_to_context(&mut self.context);
@@ -327,6 +364,13 @@ impl<P: SyllableParser> ImeEngine<P> {
                 KeyResult::Handled
             }
             EditorResult::CommitAndReset(text) => {
+                // Apply full-width conversion if enabled
+                let text = if self.phonetic_editor.backend().config().is_fullwidth() {
+                    crate::utils::to_fullwidth(&text)
+                } else {
+                    text
+                };
+                
                 // Commit and prepare for auto-suggestion
                 let committed_text = text.clone();
                 if !text.is_empty() {
@@ -390,6 +434,53 @@ impl<P: SyllableParser> ImeEngine<P> {
         };
         
         self.context.auxiliary_text = aux_text;
+    }
+    
+    // ========== Configuration Management API ==========
+    
+    /// Toggle full-width mode on/off.
+    pub fn toggle_fullwidth(&mut self) {
+        self.phonetic_editor.backend().config_mut().toggle_fullwidth();
+    }
+    
+    /// Set full-width mode explicitly.
+    pub fn set_fullwidth(&mut self, enabled: bool) {
+        self.phonetic_editor.backend().config_mut().set_fullwidth(enabled);
+    }
+    
+    /// Check if full-width mode is enabled.
+    pub fn is_fullwidth(&self) -> bool {
+        self.phonetic_editor.backend().config().is_fullwidth()
+    }
+    
+    /// Set the selection keys string (e.g., "asdfghjkl" or "123456789").
+    pub fn set_select_keys(&mut self, keys: &str) {
+        self.phonetic_editor.backend().config_mut().set_select_keys(keys);
+    }
+    
+    /// Get the current selection keys.
+    pub fn get_select_keys(&self) -> String {
+        self.phonetic_editor.backend().config().get_select_keys().to_string()
+    }
+    
+    /// Add a phrase to the mask list (hide from suggestions).
+    pub fn mask_phrase(&mut self, phrase: &str) {
+        self.phonetic_editor.backend().config_mut().mask_phrase(phrase);
+    }
+    
+    /// Remove a phrase from the mask list (allow in suggestions).
+    pub fn unmask_phrase(&mut self, phrase: &str) -> bool {
+        self.phonetic_editor.backend().config_mut().unmask_phrase(phrase)
+    }
+    
+    /// Check if a phrase is masked.
+    pub fn is_masked(&self, phrase: &str) -> bool {
+        self.phonetic_editor.backend().config().is_masked(phrase)
+    }
+    
+    /// Get all masked phrases.
+    pub fn get_masked_phrases(&self) -> Vec<String> {
+        self.phonetic_editor.backend().config().get_masked_phrases()
     }
 }
 

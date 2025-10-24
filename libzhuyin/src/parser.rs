@@ -147,7 +147,28 @@ impl ZhuyinParser {
     /// - unknown char fallback: cost 10.0
     ///
     /// The DP minimizes total cost (prefer longer / fewer segments).
+    /// For custom penalty configuration, use `segment_best_with_config`.
     pub fn segment_best(&self, input: &str, allow_fuzzy: bool) -> Vec<ZhuyinSyllable> {
+        let config = libchinese_core::Config::default();
+        self.segment_best_internal(input, allow_fuzzy, &config)
+    }
+    
+    /// Perform segmentation with custom config for penalty tuning.
+    pub fn segment_best_with_config(
+        &self,
+        input: &str,
+        allow_fuzzy: bool,
+        config: &libchinese_core::Config,
+    ) -> Vec<ZhuyinSyllable> {
+        self.segment_best_internal(input, allow_fuzzy, config)
+    }
+    
+    fn segment_best_internal(
+        &self,
+        input: &str,
+        allow_fuzzy: bool,
+        config: &libchinese_core::Config,
+    ) -> Vec<ZhuyinSyllable> {
         // Normalize: remove whitespace, operate on char vector
         let chars: Vec<char> = input.chars().filter(|c| !c.is_whitespace()).collect();
         let n = chars.len();
@@ -190,7 +211,7 @@ impl ZhuyinParser {
                         if self.trie.contains_word(&corrected) && corrected != substr {
                             let end = pos + len;
                             if end <= n && !dp_cost[end].is_infinite() {
-                                let seg_cost = 200.0; // Correction penalty
+                                let seg_cost = config.correction_penalty as f32; // Correction penalty from config (default: 200)
                                 let cand = seg_cost + dp_cost[end];
                                 if cand < dp_cost[pos] {
                                     dp_cost[pos] = cand;
@@ -207,7 +228,7 @@ impl ZhuyinParser {
                             // require same char-length match for this placeholder approach
                             if alt.chars().count() == substr.chars().count() {
                                 let end = pos + len;
-                                let seg_cost = penalty; // use fuzzy penalty from rule
+                                let seg_cost = (penalty as f32) * (config.fuzzy_penalty_multiplier as f32); // use fuzzy penalty from config
                                 let cand = seg_cost + dp_cost[end];
                                 if cand < dp_cost[pos] {
                                     dp_cost[pos] = cand;
@@ -223,7 +244,7 @@ impl ZhuyinParser {
             if dp_choice[pos].is_none() {
                 let end = pos + 1;
                 let substr: String = chars[pos..end].iter().collect();
-                let seg_cost = 10.0;
+                let seg_cost = config.unknown_cost; // penalty from config (default: 10.0)
                 let cand = seg_cost + dp_cost[end];
                 if cand < dp_cost[pos] {
                     dp_cost[pos] = cand;
@@ -251,6 +272,7 @@ impl ZhuyinParser {
 
     /// Return top-K segmentations. Placeholder: returns best segmentation only.
     /// A full implementation should enumerate alternatives (beam search / k-best DP).
+    /// For custom penalty configuration, use `segment_top_k_with_config`.
     pub fn segment_top_k(
         &self,
         input: &str,
@@ -258,6 +280,17 @@ impl ZhuyinParser {
         allow_fuzzy: bool,
     ) -> Vec<Vec<ZhuyinSyllable>> {
         vec![self.segment_best(input, allow_fuzzy)]
+    }
+    
+    /// Return top-K segmentations with custom config for penalty tuning.
+    pub fn segment_top_k_with_config(
+        &self,
+        input: &str,
+        _k: usize,
+        allow_fuzzy: bool,
+        config: &libchinese_core::Config,
+    ) -> Vec<Vec<ZhuyinSyllable>> {
+        vec![self.segment_best_with_config(input, allow_fuzzy, config)]
     }
 }
 

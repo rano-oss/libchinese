@@ -43,7 +43,7 @@ pub struct Engine<P> {
 impl<P: SyllableParser> Engine<P> {
     /// Create a new engine with the given model and parser.
     pub fn new(model: Model, parser: P) -> Self {
-        let cache_capacity = model.config.max_cache_size;
+        let cache_capacity = model.config.borrow().max_cache_size;
         
         Self {
             model,
@@ -104,6 +104,13 @@ impl<P: SyllableParser> Engine<P> {
         // Collect, sort and return top results
         let mut vec: Vec<Candidate> = best.into_values().collect();
         
+        // Filter out masked phrases
+        let config = self.model.config.borrow();
+        if !config.masked_phrases.is_empty() {
+            vec.retain(|c| !config.is_masked(&c.text));
+        }
+        drop(config);
+        
         // Apply advanced ranking options from config
         vec = self.apply_advanced_ranking(vec, input);
         
@@ -127,7 +134,7 @@ impl<P: SyllableParser> Engine<P> {
     /// - SORT_BY_PINYIN_LENGTH: Prefer shorter pinyin (adjusts score)
     /// - SORT_WITHOUT_LONGER_CANDIDATE: Filter out phrases longer than input
     fn apply_advanced_ranking(&self, mut candidates: Vec<Candidate>, input: &str) -> Vec<Candidate> {
-        let cfg = &self.model.config;
+        let cfg = self.model.config.borrow();
         
         // Filter: Remove candidates longer than input
         if cfg.sort_without_longer_candidate {
@@ -140,6 +147,7 @@ impl<P: SyllableParser> Engine<P> {
         
         // Adjust scores based on phrase length preference
         if cfg.sort_by_phrase_length {
+            drop(cfg); // Release borrow before mutable iteration
             for cand in candidates.iter_mut() {
                 let phrase_len = cand.text.chars().count();
                 // Penalize each extra character beyond 1
@@ -153,7 +161,7 @@ impl<P: SyllableParser> Engine<P> {
     
     /// Sort candidates by score (primary) and optionally by phrase length (secondary).
     fn sort_candidates(&self, candidates: &mut [Candidate]) {
-        let sort_by_length = self.model.config.sort_by_phrase_length;
+        let sort_by_length = self.model.config.borrow().sort_by_phrase_length;
         
         candidates.sort_by(|a, b| {
             // Primary: score (higher is better)
@@ -248,7 +256,12 @@ impl<P: SyllableParser> Engine<P> {
     }
 
     /// Get reference to the configuration.
-    pub fn config(&self) -> &crate::Config {
-        &self.model.config
+    pub fn config(&self) -> std::cell::Ref<crate::Config> {
+        self.model.config.borrow()
+    }
+    
+    /// Get mutable reference to the configuration.
+    pub fn config_mut(&self) -> std::cell::RefMut<crate::Config> {
+        self.model.config.borrow_mut()
     }
 }

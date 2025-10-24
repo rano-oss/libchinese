@@ -281,8 +281,13 @@ impl Engine {
     }
     
     /// Get a reference to the config
-    pub fn config(&self) -> &libchinese_core::Config {
+    pub fn config(&self) -> std::cell::Ref<libchinese_core::Config> {
         self.inner.config()
+    }
+    
+    /// Get a mutable reference to the config
+    pub fn config_mut(&self) -> std::cell::RefMut<libchinese_core::Config> {
+        self.inner.config_mut()
     }
 
     /// Commit a phrase to the user dictionary (learning).
