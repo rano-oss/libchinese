@@ -505,7 +505,7 @@ impl<P: SyllableParser> Editor for SuggestionEditor<P> {
             .map(|(text, log_prob)| {
                 // Convert log probability to a reasonable score
                 // Higher log_prob (less negative) = better score
-                let score = (log_prob.exp() * 100.0);
+                let score = log_prob.exp() * 100.0;
                 Candidate::new(text, score as f32)
             })
             .collect();
