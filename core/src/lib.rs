@@ -22,6 +22,7 @@ use std::fs::File;
 use std::io::Read;
 use bincode;
 
+// Core modules
 pub mod ngram;
 pub use ngram::{Interpolator, Lambdas, NGramModel};
 
@@ -34,30 +35,30 @@ pub use fuzzy::{FuzzyMap, FuzzyRule};
 pub mod engine;
 pub use engine::{Engine, SyllableParser, SyllableType};
 
-pub mod ime;
-pub use ime::{
-    ImeEngine, ImeSession, ImeContext, InputMode, KeyEvent, KeyResult,
-    PhoneticEditor, PunctuationEditor, SuggestionEditor,
-};
+pub mod userdict;
+pub use userdict::UserDict;
 
-/// A single text candidate with an associated score.
-///
-/// Scores are on a relative scale; higher is better. Use `f32` for compactness
-/// and performance.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Candidate {
-    pub text: String,
-    pub score: f32,
-}
+// IME modules (flattened from ime/ subdirectory)
+pub mod candidate;
+pub use candidate::{Candidate, CandidateList};
 
-impl Candidate {
-    pub fn new<T: Into<String>>(text: T, score: f32) -> Self {
-        Candidate {
-            text: text.into(),
-            score,
-        }
-    }
-}
+pub mod composition;
+pub use composition::{Composition, Segment};
+
+pub mod context;
+pub use context::ImeContext;
+
+pub mod input_buffer;
+pub use input_buffer::InputBuffer;
+
+pub mod session;
+pub use session::{ImeSession, InputMode};
+
+pub mod editor;
+pub use editor::{Editor, EditorResult, PhoneticEditor, PunctuationEditor, SuggestionEditor};
+
+pub mod ime_engine;
+pub use ime_engine::{ImeEngine, KeyEvent, KeyResult};
 
 /// Generic configuration for IME core functionality.
 /// 
@@ -373,9 +374,6 @@ pub mod utils {
         }).collect()
     }
 }
-
-pub mod userdict;
-pub use userdict::UserDict;
 
 /// Lexicon entry matching convert_table output format
 #[derive(Serialize, Deserialize, Debug, Clone)]

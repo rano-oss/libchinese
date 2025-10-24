@@ -1,13 +1,30 @@
-//! Candidate list management with paging and cursor navigation.
+//! Candidate types for IME text conversion.
 //!
-//! This module provides data structures for managing IME candidates with pagination,
-//! cursor navigation, and selection. It handles the display logic for showing
-//! available conversion options to the user.
+//! This module provides:
+//! - `Candidate`: A single text candidate with score
+//! - `CandidateList`: Paginated list with cursor navigation
 
+use serde::{Deserialize, Serialize};
 use std::ops::Range;
 
-// Re-export Candidate from the parent crate
-pub use crate::Candidate;
+/// A single text candidate with an associated score.
+///
+/// Scores are on a relative scale; higher is better. Use `f32` for compactness
+/// and performance.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Candidate {
+    pub text: String,
+    pub score: f32,
+}
+
+impl Candidate {
+    pub fn new<T: Into<String>>(text: T, score: f32) -> Self {
+        Candidate {
+            text: text.into(),
+            score,
+        }
+    }
+}
 
 /// A paginated list of candidates with cursor navigation.
 #[derive(Debug, Clone)]

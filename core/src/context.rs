@@ -50,8 +50,8 @@ impl Default for InputPurpose {
 ///
 /// # Example
 ///
-/// ```no_run
-/// use libpinyin::ImeContext;
+/// ```
+/// use libchinese_core::ImeContext;
 ///
 /// let mut context = ImeContext::new();
 /// context.preedit_text = "ni'hao".to_string();
@@ -60,13 +60,12 @@ impl Default for InputPurpose {
 /// // Platform reads fields
 /// if !context.commit_text.is_empty() {
 ///     // Commit to application
-///     wayland_commit(&context.commit_text);
 ///     context.commit_text.clear();
 /// }
 ///
 /// if !context.preedit_text.is_empty() {
-///     // Show preedit
-///     wayland_show_preedit(&context.preedit_text, context.preedit_cursor);
+///     // Show preedit with cursor
+///     let cursor_pos = context.preedit_cursor;
 /// }
 /// ```
 #[derive(Debug, Clone, Default)]

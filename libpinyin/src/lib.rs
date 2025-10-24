@@ -30,8 +30,12 @@ pub mod double_pinyin;
 // Cloud input support (Phase 4)
 pub mod cloud;
 
-// Re-export IME components from core
-pub use libchinese_core::ime::*;
+// Re-export IME components from core (now at root level, not in ime::)
+pub use libchinese_core::{
+    ImeEngine, ImeSession, ImeContext, InputMode, KeyEvent, KeyResult,
+    PhoneticEditor, PunctuationEditor, SuggestionEditor, Candidate, CandidateList,
+    Composition, Segment, InputBuffer, Editor, EditorResult,
+};
 
 // Convenience re-exports for common types used by callers.
 pub use config::PinyinConfig;

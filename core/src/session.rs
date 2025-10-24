@@ -4,10 +4,10 @@
 //! composition, candidates) into a cohesive session that tracks state across
 //! multiple key events.
 
-use super::input_buffer::InputBuffer;
-use super::composition::Composition;
-use super::candidates::CandidateList;
-use super::context::ImeContext;
+use crate::input_buffer::InputBuffer;
+use crate::composition::Composition;
+use crate::candidate::CandidateList;
+use crate::context::ImeContext;
 
 /// Current input mode of the IME session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -7,8 +7,12 @@ pub mod parser;
 pub mod engine;
 pub mod fuzzy_presets;
 
-// Re-export IME components from core
-pub use libchinese_core::ime::*;
+// Re-export IME components from core (now at root level, not in ime::)
+pub use libchinese_core::{
+    ImeEngine, ImeSession, ImeContext, InputMode, KeyEvent, KeyResult,
+    PhoneticEditor, PunctuationEditor, SuggestionEditor, Candidate, CandidateList,
+    Composition, Segment, InputBuffer, Editor, EditorResult,
+};
 
 pub use config::ZhuyinConfig;
 pub use parser::ZhuyinParser;

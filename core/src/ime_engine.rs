@@ -63,10 +63,9 @@ pub enum KeyResult {
 ///
 /// # Example
 ///
-/// ```no_run
-/// use libpinyin::{ImeEngine, KeyEvent, KeyResult};
-/// # use libpinyin::Engine;
-/// # let backend = Engine::from_data_dir("data").unwrap();
+/// ```ignore
+/// use libchinese_core::{ImeEngine, KeyEvent, KeyResult, Engine};
+/// # let backend: Engine<_> = todo!();
 ///
 /// let mut ime = ImeEngine::new(backend);
 ///

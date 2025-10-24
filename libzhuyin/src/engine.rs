@@ -343,7 +343,7 @@ impl Engine {
 pub fn create_ime_engine_hsu<P: AsRef<std::path::Path>>(
     data_dir: P,
     page_size: usize,
-) -> Result<libchinese_core::ime::ImeEngine<ZhuyinParser>, Box<dyn Error>> {
+) -> Result<libchinese_core::ImeEngine<ZhuyinParser>, Box<dyn Error>> {
     let data_dir = data_dir.as_ref();
     
     // Load model from data directory
@@ -388,7 +388,7 @@ pub fn create_ime_engine_hsu<P: AsRef<std::path::Path>>(
     let core_engine = Arc::new(libchinese_core::Engine::new(model, parser));
     
     // Create IME engine
-    Ok(libchinese_core::ime::ImeEngine::from_arc_with_page_size(core_engine, page_size))
+    Ok(libchinese_core::ImeEngine::from_arc_with_page_size(core_engine, page_size))
 }
 
 /// Create an IME engine with Standard keyboard layout fuzzy rules.
@@ -405,7 +405,7 @@ pub fn create_ime_engine_hsu<P: AsRef<std::path::Path>>(
 pub fn create_ime_engine_standard<P: AsRef<std::path::Path>>(
     data_dir: P,
     page_size: usize,
-) -> Result<libchinese_core::ime::ImeEngine<ZhuyinParser>, Box<dyn Error>> {
+) -> Result<libchinese_core::ImeEngine<ZhuyinParser>, Box<dyn Error>> {
     let data_dir = data_dir.as_ref();
     
     // Load model (same as HSU)
@@ -444,7 +444,7 @@ pub fn create_ime_engine_standard<P: AsRef<std::path::Path>>(
     
     let core_engine = Arc::new(libchinese_core::Engine::new(model, parser));
     
-    Ok(libchinese_core::ime::ImeEngine::from_arc_with_page_size(core_engine, page_size))
+    Ok(libchinese_core::ImeEngine::from_arc_with_page_size(core_engine, page_size))
 }
 
 /// Create an IME engine with ETEN keyboard layout fuzzy rules.
@@ -461,7 +461,7 @@ pub fn create_ime_engine_standard<P: AsRef<std::path::Path>>(
 pub fn create_ime_engine_eten<P: AsRef<std::path::Path>>(
     data_dir: P,
     page_size: usize,
-) -> Result<libchinese_core::ime::ImeEngine<ZhuyinParser>, Box<dyn Error>> {
+) -> Result<libchinese_core::ImeEngine<ZhuyinParser>, Box<dyn Error>> {
     let data_dir = data_dir.as_ref();
     
     // Load model (same as HSU/Standard)
@@ -500,6 +500,6 @@ pub fn create_ime_engine_eten<P: AsRef<std::path::Path>>(
     
     let core_engine = Arc::new(libchinese_core::Engine::new(model, parser));
     
-    Ok(libchinese_core::ime::ImeEngine::from_arc_with_page_size(core_engine, page_size))
+    Ok(libchinese_core::ImeEngine::from_arc_with_page_size(core_engine, page_size))
 }
 

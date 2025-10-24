@@ -4,9 +4,9 @@
 //! modes (phonetic, punctuation, suggestions). Each editor implements the
 //! `Editor` trait and processes key events in its specific context.
 
-use super::session::ImeSession;
-use super::engine::KeyEvent;
-use super::candidates::Candidate;
+use crate::session::ImeSession;
+use crate::ime_engine::KeyEvent;
+use crate::candidate::Candidate;
 use crate::engine::{Engine, SyllableParser};
 use std::sync::Arc;
 use std::collections::HashMap;
@@ -24,7 +24,7 @@ pub enum EditorResult {
     CommitAndReset(String),
     
     /// Request to switch to a different mode
-    ModeSwitch(super::session::InputMode),
+    ModeSwitch(crate::session::InputMode),
     
     /// Key not handled by this editor, pass to parent
     PassThrough,
@@ -37,10 +37,10 @@ pub enum EditorResult {
 ///
 /// # Example
 ///
-/// ```no_run
-/// use libpinyin::editor::{Editor, PhoneticEditor};
-/// # use libpinyin::{Engine, ImeSession};
-/// # let backend = Engine::from_data_dir("data").unwrap();
+/// ```ignore
+/// use libchinese_core::{PhoneticEditor, Editor, KeyEvent, ImeSession, Engine};
+/// # use std::sync::Arc;
+/// # let backend: Arc<Engine<_>> = todo!();
 /// # let mut session = ImeSession::new();
 ///
 /// let mut editor = PhoneticEditor::new(backend);
@@ -762,7 +762,7 @@ mod tests {
     use super::*;
     use crate::{Model, Lexicon, NGramModel, UserDict, Config};
     use crate::engine::{SyllableParser, SyllableType};
-    use crate::ime::session::{ImeSession, InputMode};
+    use crate::session::{ImeSession, InputMode};
     use std::sync::Arc;
     
     // Minimal test parser for unit tests

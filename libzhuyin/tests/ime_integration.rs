@@ -6,7 +6,7 @@
 //! - Fuzzy matching behavior across layouts
 
 use libzhuyin::{create_ime_engine_hsu, create_ime_engine_standard, create_ime_engine_eten};
-use libchinese_core::ime::KeyEvent;
+use libchinese_core::KeyEvent;
 
 // Note: Integration tests run from crate directory (libzhuyin), not workspace root
 const DATA_DIR: &str = "../data/converted/zhuyin_traditional";
