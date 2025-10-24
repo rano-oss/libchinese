@@ -48,7 +48,7 @@ pub mod engine;
 
 pub use input_buffer::InputBuffer;
 pub use composition::{Composition, Segment};
-pub use candidates::{Candidate as CandidateItem, CandidateList};
+pub use candidates::{Candidate, CandidateList};
 pub use context::ImeContext;
 pub use session::{ImeSession, InputMode};
 pub use editor::{Editor, EditorResult, PhoneticEditor, PunctuationEditor, SuggestionEditor};

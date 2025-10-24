@@ -58,8 +58,8 @@ fn build_fst_and_bincode<P: AsRef<Path>>(table_paths: &[(&str, P)], out_prefix: 
                             parts.join("'")
                         }
                         "zhuyin" => {
-                            // Keep original bopomofo/zhuyin key (strip tones for normalization)
-                            strip_zhuyin_tone(&key)
+                            // Keep original bopomofo/zhuyin key WITH tone marks
+                            key.clone()
                         }
                         _ => key.clone()
                     }

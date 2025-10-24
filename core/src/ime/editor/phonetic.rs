@@ -12,6 +12,12 @@ use super::super::candidates::Candidate;
 use super::{Editor, EditorResult};
 use std::sync::Arc;
 
+/// Check if a character is a tone mark used in zhuyin.
+/// Tone marks: ˊ (2nd), ˇ (3rd), ˋ (4th), ˙ (light)
+fn is_tone_mark(ch: char) -> bool {
+    matches!(ch, '\u{02CA}' | '\u{02C7}' | '\u{02CB}' | '\u{02D9}')
+}
+
 /// Phonetic input editor (pinyin/zhuyin).
 ///
 /// This is the main editor for Chinese character input via phonetic typing.
@@ -37,8 +43,9 @@ impl<P: SyllableParser> PhoneticEditor<P> {
     
     /// Handle character input (a-z).
     fn handle_char(&mut self, ch: char, session: &mut ImeSession) -> EditorResult {
-        // Only accept ASCII lowercase for phonetic input
-        if !ch.is_ascii_lowercase() {
+        // Accept phonetic characters (ASCII lowercase for pinyin, Unicode for bopomofo/zhuyin)
+        // Allow tone marks (ˊˇˋ˙) and other combining characters
+        if !ch.is_ascii_lowercase() && !ch.is_alphabetic() && !is_tone_mark(ch) {
             return EditorResult::PassThrough;
         }
         

@@ -266,7 +266,8 @@ impl<P: SyllableParser> ImeEngine<P> {
         let result = match self.session.mode() {
             InputMode::Init => {
                 // Check if this is phonetic input or punctuation
-                if matches!(key, KeyEvent::Char(ch) if ch.is_ascii_lowercase()) {
+                // Accept ASCII lowercase (pinyin) or Unicode alphabetic (bopomofo/zhuyin)
+                if matches!(key, KeyEvent::Char(ch) if ch.is_ascii_lowercase() || ch.is_alphabetic()) {
                     // Activate phonetic mode
                     self.session.activate();
                     self.session.set_mode(InputMode::Phonetic);
