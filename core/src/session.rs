@@ -4,10 +4,10 @@
 //! composition, candidates) into a cohesive session that tracks state across
 //! multiple key events.
 
-use crate::input_buffer::InputBuffer;
-use crate::composition::Composition;
 use crate::candidate::CandidateList;
+use crate::composition::Composition;
 use crate::context::ImeContext;
+use crate::input_buffer::InputBuffer;
 
 /// Current input mode of the IME session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -165,10 +165,7 @@ impl ImeSession {
 
         // Set candidates
         let page_candidates = self.candidates.current_page_candidates();
-        context.candidates = page_candidates
-            .iter()
-            .map(|c| c.text.clone())
-            .collect();
+        context.candidates = page_candidates.iter().map(|c| c.text.clone()).collect();
         context.candidate_cursor = self.candidates.cursor();
 
         // Set auxiliary text (page indicator if multi-page)
@@ -185,10 +182,8 @@ impl ImeSession {
     pub fn sync_from_context(&mut self, context: &ImeContext) {
         // Update composition
         if !context.preedit_text.is_empty() {
-            self.composition = Composition::with_cursor(
-                context.preedit_text.clone(),
-                context.preedit_cursor
-            );
+            self.composition =
+                Composition::with_cursor(context.preedit_text.clone(), context.preedit_cursor);
         }
     }
 }

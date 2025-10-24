@@ -197,7 +197,7 @@ mod tests {
     fn test_delete_before() {
         let mut buf = InputBuffer::new();
         buf.insert_str("nihao");
-        
+
         assert!(buf.delete_before());
         assert_eq!(buf.text(), "niha");
         assert_eq!(buf.cursor(), 4);
@@ -212,7 +212,7 @@ mod tests {
         let mut buf = InputBuffer::new();
         buf.insert_str("ni");
         buf.move_to_start();
-        
+
         assert!(!buf.delete_before());
         assert_eq!(buf.text(), "ni");
         assert_eq!(buf.cursor(), 0);
@@ -223,7 +223,7 @@ mod tests {
         let mut buf = InputBuffer::new();
         buf.insert_str("nihao");
         buf.move_to_start();
-        
+
         assert!(buf.delete_after());
         assert_eq!(buf.text(), "ihao");
         assert_eq!(buf.cursor(), 0);
@@ -233,26 +233,26 @@ mod tests {
     fn test_cursor_movement() {
         let mut buf = InputBuffer::new();
         buf.insert_str("nihao");
-        
+
         // At end
         assert_eq!(buf.cursor(), 5);
-        
+
         // Move left
         assert!(buf.move_left());
         assert_eq!(buf.cursor(), 4);
-        
+
         // Move right
         assert!(buf.move_right());
         assert_eq!(buf.cursor(), 5);
-        
+
         // Can't move right at end
         assert!(!buf.move_right());
         assert_eq!(buf.cursor(), 5);
-        
+
         // Move to start
         buf.move_to_start();
         assert_eq!(buf.cursor(), 0);
-        
+
         // Can't move left at start
         assert!(!buf.move_left());
         assert_eq!(buf.cursor(), 0);
@@ -264,11 +264,11 @@ mod tests {
         buf.insert_char('你');
         assert_eq!(buf.text(), "你");
         assert_eq!(buf.cursor(), 3); // UTF-8: 3 bytes
-        
+
         buf.insert_char('好');
         assert_eq!(buf.text(), "你好");
         assert_eq!(buf.cursor(), 6); // 3 + 3 bytes
-        
+
         assert!(buf.delete_before());
         assert_eq!(buf.text(), "你");
         assert_eq!(buf.cursor(), 3);
@@ -279,7 +279,7 @@ mod tests {
         let mut buf = InputBuffer::new();
         buf.insert_str("nihao");
         buf.clear();
-        
+
         assert_eq!(buf.text(), "");
         assert_eq!(buf.cursor(), 0);
         assert!(buf.is_empty());
@@ -291,7 +291,7 @@ mod tests {
         buf.insert_str("niao");
         buf.set_cursor(2);
         buf.insert_char('h');
-        
+
         assert_eq!(buf.text(), "nihao");
         assert_eq!(buf.cursor(), 3);
     }

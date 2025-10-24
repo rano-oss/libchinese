@@ -1,5 +1,4 @@
 /// Prefix trie for syllable validation and segmentation.
-
 use std::collections::HashMap;
 
 /// A simple Trie (prefix tree) for storing valid syllables.

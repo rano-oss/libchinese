@@ -31,13 +31,13 @@ impl Candidate {
 pub struct CandidateList {
     /// All available candidates
     candidates: Vec<Candidate>,
-    
+
     /// Number of candidates per page
     page_size: usize,
-    
+
     /// Current page index (0-based)
     current_page: usize,
-    
+
     /// Cursor position within the current page (0-based)
     cursor: usize,
 }
@@ -136,7 +136,11 @@ impl CandidateList {
     fn current_page_len(&self) -> usize {
         let start = self.current_page * self.page_size;
         let end = (start + self.page_size).min(self.candidates.len());
-        if end > start { end - start } else { 0 }
+        if end > start {
+            end - start
+        } else {
+            0
+        }
     }
 
     /// Get the range of candidates for the current page.
@@ -267,7 +271,9 @@ mod tests {
     use super::*;
 
     fn test_candidates(n: usize) -> Vec<Candidate> {
-        (0..n).map(|i| Candidate::new(format!("候选{}", i), 1.0 - i as f32 * 0.1)).collect()
+        (0..n)
+            .map(|i| Candidate::new(format!("候选{}", i), 1.0 - i as f32 * 0.1))
+            .collect()
     }
 
     #[test]
@@ -293,31 +299,31 @@ mod tests {
     fn test_pagination() {
         let mut list = CandidateList::with_page_size(3);
         list.set_candidates(test_candidates(10));
-        
+
         assert_eq!(list.len(), 10);
         assert_eq!(list.page_size(), 3);
         assert_eq!(list.num_pages(), 4); // 10 items, 3 per page = 4 pages
-        
+
         // First page has 3 items
         assert_eq!(list.current_page_candidates().len(), 3);
         assert_eq!(list.current_page_candidates()[0].text, "候选0");
-        
+
         // Move to page 2
         assert!(list.page_down());
         assert_eq!(list.current_page(), 1);
         assert_eq!(list.current_page_candidates().len(), 3);
         assert_eq!(list.current_page_candidates()[0].text, "候选3");
-        
+
         // Move to page 3
         assert!(list.page_down());
         assert_eq!(list.current_page(), 2);
-        
+
         // Move to page 4 (last page, only 1 item)
         assert!(list.page_down());
         assert_eq!(list.current_page(), 3);
         assert_eq!(list.current_page_candidates().len(), 1);
         assert_eq!(list.current_page_candidates()[0].text, "候选9");
-        
+
         // Can't page down anymore
         assert!(!list.page_down());
         assert_eq!(list.current_page(), 3);
@@ -327,25 +333,25 @@ mod tests {
     fn test_cursor_navigation() {
         let mut list = CandidateList::with_page_size(3);
         list.set_candidates(test_candidates(5));
-        
+
         assert_eq!(list.cursor(), 0);
-        
+
         // Move cursor down
         assert!(list.cursor_down());
         assert_eq!(list.cursor(), 1);
         assert!(list.cursor_down());
         assert_eq!(list.cursor(), 2);
-        
+
         // Can't move down on last item of page
         assert!(!list.cursor_down());
         assert_eq!(list.cursor(), 2);
-        
+
         // Move cursor up
         assert!(list.cursor_up());
         assert_eq!(list.cursor(), 1);
         assert!(list.cursor_up());
         assert_eq!(list.cursor(), 0);
-        
+
         // Can't move up from first item
         assert!(!list.cursor_up());
         assert_eq!(list.cursor(), 0);
@@ -354,16 +360,16 @@ mod tests {
     #[test]
     fn test_selected_candidate() {
         let mut list = CandidateList::from_candidates(test_candidates(5));
-        
+
         // Initially first candidate is selected
         assert_eq!(list.selected_candidate().unwrap().text, "候选0");
         assert_eq!(list.selected_index(), Some(0));
-        
+
         // Move cursor and check selection
         list.cursor_down();
         assert_eq!(list.selected_candidate().unwrap().text, "候选1");
         assert_eq!(list.selected_index(), Some(1));
-        
+
         list.cursor_down();
         assert_eq!(list.selected_candidate().unwrap().text, "候选2");
         assert_eq!(list.selected_index(), Some(2));
@@ -373,15 +379,15 @@ mod tests {
     fn test_select_by_index() {
         let mut list = CandidateList::with_page_size(3);
         list.set_candidates(test_candidates(10));
-        
+
         // Select within current page
         let candidate = list.select_by_index(2).unwrap();
         assert_eq!(candidate.text, "候选2");
         assert_eq!(list.cursor(), 2);
-        
+
         // Invalid index returns None
         assert!(list.select_by_index(5).is_none());
-        
+
         // Move to next page and select
         list.page_down();
         let candidate = list.select_by_index(1).unwrap();
@@ -392,16 +398,16 @@ mod tests {
     fn test_cursor_preserved_across_pages() {
         let mut list = CandidateList::with_page_size(3);
         list.set_candidates(test_candidates(10));
-        
+
         // Set cursor to position 2
         list.cursor_down();
         list.cursor_down();
         assert_eq!(list.cursor(), 2);
-        
+
         // Move to next page (has 3 items), cursor should be valid
         list.page_down();
         assert_eq!(list.cursor(), 2);
-        
+
         // Move to last page (has 1 item), cursor should be clamped
         list.page_down();
         list.page_down();
@@ -414,7 +420,7 @@ mod tests {
         let mut list = CandidateList::from_candidates(test_candidates(10));
         assert_eq!(list.page_size(), 5);
         assert_eq!(list.num_pages(), 2);
-        
+
         // Change page size
         list.set_page_size(3);
         assert_eq!(list.page_size(), 3);
@@ -427,13 +433,13 @@ mod tests {
         let mut list = CandidateList::from_candidates(test_candidates(10));
         list.page_down();
         list.cursor_down();
-        
+
         // Clear removes all candidates
         list.clear();
         assert!(list.is_empty());
         assert_eq!(list.current_page(), 0);
         assert_eq!(list.cursor(), 0);
-        
+
         // Reset only resets pagination
         list.set_candidates(test_candidates(10));
         list.page_down();

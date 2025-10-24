@@ -52,15 +52,15 @@ pub enum DoublePinyinScheme {
 pub struct DoublePinyinSchemeData {
     /// Scheme name
     pub name: &'static str,
-    
+
     /// Shengmu (initial consonant) mappings: key -> full initial
     /// e.g., 'u' -> "sh" in Microsoft scheme
     pub shengmu: HashMap<char, &'static str>,
-    
+
     /// Yunmu (final) mappings: key -> full final
     /// e.g., 'h' -> "ang" in Microsoft scheme
     pub yunmu: HashMap<char, &'static str>,
-    
+
     /// Special single-key syllables (a, e, o, etc.)
     /// These are typed with the syllable letter twice: aa, ee, oo
     pub special: HashMap<char, &'static str>,
@@ -91,21 +91,21 @@ fn microsoft_scheme() -> DoublePinyinSchemeData {
     let mut shengmu = HashMap::new();
     let mut yunmu = HashMap::new();
     let mut special = HashMap::new();
-    
+
     // Shengmu (initials): most are unchanged
     // Special multi-letter initials:
-    shengmu.insert('u', "sh");  // u -> sh
-    shengmu.insert('i', "ch");  // i -> ch
-    shengmu.insert('v', "zh");  // v -> zh
-    
+    shengmu.insert('u', "sh"); // u -> sh
+    shengmu.insert('i', "ch"); // i -> ch
+    shengmu.insert('v', "zh"); // v -> zh
+
     // Yunmu (finals) - Microsoft scheme
     yunmu.insert('a', "a");
     yunmu.insert('o', "o");
     yunmu.insert('e', "e");
     yunmu.insert('i', "i");
     yunmu.insert('u', "u");
-    yunmu.insert('v', "v");     // ü
-    
+    yunmu.insert('v', "v"); // ü
+
     yunmu.insert('b', "ou");
     yunmu.insert('c', "iao");
     yunmu.insert('d', "uang");
@@ -126,12 +126,12 @@ fn microsoft_scheme() -> DoublePinyinSchemeData {
     yunmu.insert('x', "ie");
     yunmu.insert('y', "uai");
     yunmu.insert('z', "ei");
-    
+
     // Special single vowels - type the letter twice
     special.insert('a', "a");
     special.insert('e', "e");
     special.insert('o', "o");
-    
+
     DoublePinyinSchemeData {
         name: "Microsoft",
         shengmu,
@@ -146,12 +146,12 @@ fn ziranma_scheme() -> DoublePinyinSchemeData {
     let mut shengmu = HashMap::new();
     let mut yunmu = HashMap::new();
     let mut special = HashMap::new();
-    
+
     // ZiRanMa shengmu
     shengmu.insert('u', "sh");
     shengmu.insert('i', "ch");
     shengmu.insert('v', "zh");
-    
+
     // ZiRanMa yunmu (different from Microsoft)
     yunmu.insert('a', "a");
     yunmu.insert('o', "o");
@@ -159,7 +159,7 @@ fn ziranma_scheme() -> DoublePinyinSchemeData {
     yunmu.insert('i', "i");
     yunmu.insert('u', "u");
     yunmu.insert('v', "v");
-    
+
     yunmu.insert('b', "ia");
     yunmu.insert('c', "ua");
     yunmu.insert('d', "ao");
@@ -180,11 +180,11 @@ fn ziranma_scheme() -> DoublePinyinSchemeData {
     yunmu.insert('x', "uang");
     yunmu.insert('y', "ing");
     yunmu.insert('z', "ou");
-    
+
     special.insert('a', "a");
     special.insert('e', "e");
     special.insert('o', "o");
-    
+
     DoublePinyinSchemeData {
         name: "ZiRanMa",
         shengmu,
@@ -199,12 +199,12 @@ fn ziguang_scheme() -> DoublePinyinSchemeData {
     let mut shengmu = HashMap::new();
     let mut yunmu = HashMap::new();
     let mut special = HashMap::new();
-    
+
     // Shengmu (same multi-letter initials as Microsoft)
     shengmu.insert('u', "sh");
     shengmu.insert('i', "ch");
     shengmu.insert('v', "zh");
-    
+
     // Yunmu - ZiGuang has its own mappings, similar to Microsoft but with differences
     yunmu.insert('a', "a");
     yunmu.insert('o', "o");
@@ -212,32 +212,32 @@ fn ziguang_scheme() -> DoublePinyinSchemeData {
     yunmu.insert('i', "i");
     yunmu.insert('u', "u");
     yunmu.insert('v', "v");
-    
-    yunmu.insert('b', "ia");      // Different from Microsoft (ou)
-    yunmu.insert('c', "uan");     // Different from Microsoft (iao)
-    yunmu.insert('d', "ao");      // Different from Microsoft (uang)
+
+    yunmu.insert('b', "ia"); // Different from Microsoft (ou)
+    yunmu.insert('c', "uan"); // Different from Microsoft (iao)
+    yunmu.insert('d', "ao"); // Different from Microsoft (uang)
     yunmu.insert('f', "en");
     yunmu.insert('g', "eng");
     yunmu.insert('h', "ang");
     yunmu.insert('j', "an");
-    yunmu.insert('k', "uai");     // Different from Microsoft (ao)
+    yunmu.insert('k', "uai"); // Different from Microsoft (ao)
     yunmu.insert('l', "ai");
     yunmu.insert('m', "ian");
     yunmu.insert('n', "in");
-    yunmu.insert('p', "iao");     // Different from Microsoft (un)
+    yunmu.insert('p', "iao"); // Different from Microsoft (un)
     yunmu.insert('q', "iu");
-    yunmu.insert('r', "er");      // Different from Microsoft (uan)
+    yunmu.insert('r', "er"); // Different from Microsoft (uan)
     yunmu.insert('s', "ong");
     yunmu.insert('t', "ue");
-    yunmu.insert('w', "ei");      // Different from Microsoft (ia)
+    yunmu.insert('w', "ei"); // Different from Microsoft (ia)
     yunmu.insert('x', "ie");
-    yunmu.insert('y', "un");      // Different from Microsoft (uai)
-    yunmu.insert('z', "ou");      // Different from Microsoft (ei)
-    
+    yunmu.insert('y', "un"); // Different from Microsoft (uai)
+    yunmu.insert('z', "ou"); // Different from Microsoft (ei)
+
     special.insert('a', "a");
     special.insert('e', "e");
     special.insert('o', "o");
-    
+
     DoublePinyinSchemeData {
         name: "ZiGuang",
         shengmu,
@@ -252,12 +252,12 @@ fn abc_scheme() -> DoublePinyinSchemeData {
     let mut shengmu = HashMap::new();
     let mut yunmu = HashMap::new();
     let mut special = HashMap::new();
-    
+
     // ABC uses different shengmu mappings
-    shengmu.insert('a', "zh");    // Different from others
-    shengmu.insert('e', "ch");    // Different from others
-    shengmu.insert('v', "sh");    // Different from others
-    
+    shengmu.insert('a', "zh"); // Different from others
+    shengmu.insert('e', "ch"); // Different from others
+    shengmu.insert('v', "sh"); // Different from others
+
     // Yunmu - ABC scheme
     yunmu.insert('a', "a");
     yunmu.insert('o', "o");
@@ -265,10 +265,10 @@ fn abc_scheme() -> DoublePinyinSchemeData {
     yunmu.insert('i', "i");
     yunmu.insert('u', "u");
     yunmu.insert('v', "v");
-    
+
     yunmu.insert('b', "ou");
-    yunmu.insert('c', "in");      // Different
-    yunmu.insert('d', "ia");      // Different
+    yunmu.insert('c', "in"); // Different
+    yunmu.insert('d', "ia"); // Different
     yunmu.insert('f', "en");
     yunmu.insert('g', "eng");
     yunmu.insert('h', "ang");
@@ -276,21 +276,21 @@ fn abc_scheme() -> DoublePinyinSchemeData {
     yunmu.insert('k', "ao");
     yunmu.insert('l', "ai");
     yunmu.insert('m', "ian");
-    yunmu.insert('n', "iao");     // Different
-    yunmu.insert('p', "ie");      // Different
+    yunmu.insert('n', "iao"); // Different
+    yunmu.insert('p', "ie"); // Different
     yunmu.insert('q', "iu");
     yunmu.insert('r', "uan");
     yunmu.insert('s', "ong");
     yunmu.insert('t', "ue");
-    yunmu.insert('w', "ei");      // Different
-    yunmu.insert('x', "uai");     // Different
-    yunmu.insert('y', "ing");     // Different
-    yunmu.insert('z', "un");      // Different
-    
+    yunmu.insert('w', "ei"); // Different
+    yunmu.insert('x', "uai"); // Different
+    yunmu.insert('y', "ing"); // Different
+    yunmu.insert('z', "un"); // Different
+
     special.insert('a', "a");
     special.insert('e', "e");
     special.insert('o', "o");
-    
+
     DoublePinyinSchemeData {
         name: "ABC",
         shengmu,
@@ -305,12 +305,12 @@ fn xiaohe_scheme() -> DoublePinyinSchemeData {
     let mut shengmu = HashMap::new();
     let mut yunmu = HashMap::new();
     let mut special = HashMap::new();
-    
+
     // XiaoHe uses same multi-letter initials as Microsoft
     shengmu.insert('u', "sh");
     shengmu.insert('i', "ch");
     shengmu.insert('v', "zh");
-    
+
     // Yunmu - XiaoHe scheme (phonetic-based, easier to remember)
     yunmu.insert('a', "a");
     yunmu.insert('o', "o");
@@ -318,7 +318,7 @@ fn xiaohe_scheme() -> DoublePinyinSchemeData {
     yunmu.insert('i', "i");
     yunmu.insert('u', "u");
     yunmu.insert('v', "v");
-    
+
     yunmu.insert('b', "ou");
     yunmu.insert('c', "iao");
     yunmu.insert('d', "uang");
@@ -333,17 +333,17 @@ fn xiaohe_scheme() -> DoublePinyinSchemeData {
     yunmu.insert('p', "un");
     yunmu.insert('q', "iu");
     yunmu.insert('r', "uan");
-    yunmu.insert('s', "iong");    // Different - XiaoHe uses iong instead of ong
+    yunmu.insert('s', "iong"); // Different - XiaoHe uses iong instead of ong
     yunmu.insert('t', "ue");
-    yunmu.insert('w', "ei");      // Different
+    yunmu.insert('w', "ei"); // Different
     yunmu.insert('x', "ie");
     yunmu.insert('y', "uai");
-    yunmu.insert('z', "ou");      // Different - actually maps to 'ou' differently
-    
+    yunmu.insert('z', "ou"); // Different - actually maps to 'ou' differently
+
     special.insert('a', "a");
     special.insert('e', "e");
     special.insert('o', "o");
-    
+
     DoublePinyinSchemeData {
         name: "XiaoHe",
         shengmu,
@@ -358,12 +358,12 @@ fn pinyinpp_scheme() -> DoublePinyinSchemeData {
     let mut shengmu = HashMap::new();
     let mut yunmu = HashMap::new();
     let mut special = HashMap::new();
-    
+
     // PinYin++ uses Microsoft-style shengmu
     shengmu.insert('u', "sh");
     shengmu.insert('i', "ch");
     shengmu.insert('v', "zh");
-    
+
     // Yunmu - PinYin++ optimized mappings
     yunmu.insert('a', "a");
     yunmu.insert('o', "o");
@@ -371,7 +371,7 @@ fn pinyinpp_scheme() -> DoublePinyinSchemeData {
     yunmu.insert('i', "i");
     yunmu.insert('u', "u");
     yunmu.insert('v', "v");
-    
+
     yunmu.insert('b', "ou");
     yunmu.insert('c', "iao");
     yunmu.insert('d', "uang");
@@ -387,16 +387,16 @@ fn pinyinpp_scheme() -> DoublePinyinSchemeData {
     yunmu.insert('q', "iu");
     yunmu.insert('r', "uan");
     yunmu.insert('s', "ong");
-    yunmu.insert('t', "ve");      // Different - uses ve
+    yunmu.insert('t', "ve"); // Different - uses ve
     yunmu.insert('w', "ia");
-    yunmu.insert('x', "ua");      // Different - optimized
-    yunmu.insert('y', "ing");     // Different
+    yunmu.insert('x', "ua"); // Different - optimized
+    yunmu.insert('y', "ing"); // Different
     yunmu.insert('z', "ei");
-    
+
     special.insert('a', "a");
     special.insert('e', "e");
     special.insert('o', "o");
-    
+
     DoublePinyinSchemeData {
         name: "PinYin++",
         shengmu,
@@ -419,12 +419,12 @@ pub fn double_to_full_pinyin(
             return Some(syllable.to_string());
         }
     }
-    
+
     // Validate input
     if !first.is_ascii_lowercase() || !second.is_ascii_lowercase() {
         return None;
     }
-    
+
     // Get shengmu (initial)
     let initial: &str = if let Some(&multi_initial) = scheme.shengmu.get(&first) {
         // Multi-letter initial (sh, ch, zh)
@@ -435,22 +435,18 @@ pub fn double_to_full_pinyin(
     } else {
         // Single letter initials - validate they're consonants
         match first {
-            'b' | 'p' | 'm' | 'f' |
-            'd' | 't' | 'n' | 'l' |
-            'g' | 'k' | 'h' |
-            'j' | 'q' | 'x' |
-            'z' | 'c' | 's' |
-            'r' | 'y' | 'w' => {
+            'b' | 'p' | 'm' | 'f' | 'd' | 't' | 'n' | 'l' | 'g' | 'k' | 'h' | 'j' | 'q' | 'x'
+            | 'z' | 'c' | 's' | 'r' | 'y' | 'w' => {
                 // Use a static lookup for single chars
                 get_single_char_initial(first)?
             }
-            _ => return None,  // Invalid initial
+            _ => return None, // Invalid initial
         }
     };
-    
+
     // Get yunmu (final)
     let final_part = scheme.yunmu.get(&second)?;
-    
+
     // Combine initial + final
     Some(format!("{}{}", initial, final_part))
 }
@@ -458,12 +454,26 @@ pub fn double_to_full_pinyin(
 /// Helper to get single-char initials as static str
 fn get_single_char_initial(c: char) -> Option<&'static str> {
     match c {
-        'b' => Some("b"), 'p' => Some("p"), 'm' => Some("m"), 'f' => Some("f"),
-        'd' => Some("d"), 't' => Some("t"), 'n' => Some("n"), 'l' => Some("l"),
-        'g' => Some("g"), 'k' => Some("k"), 'h' => Some("h"),
-        'j' => Some("j"), 'q' => Some("q"), 'x' => Some("x"),
-        'z' => Some("z"), 'c' => Some("c"), 's' => Some("s"),
-        'r' => Some("r"), 'y' => Some("y"), 'w' => Some("w"),
+        'b' => Some("b"),
+        'p' => Some("p"),
+        'm' => Some("m"),
+        'f' => Some("f"),
+        'd' => Some("d"),
+        't' => Some("t"),
+        'n' => Some("n"),
+        'l' => Some("l"),
+        'g' => Some("g"),
+        'k' => Some("k"),
+        'h' => Some("h"),
+        'j' => Some("j"),
+        'q' => Some("q"),
+        'x' => Some("x"),
+        'z' => Some("z"),
+        'c' => Some("c"),
+        's' => Some("s"),
+        'r' => Some("r"),
+        'y' => Some("y"),
+        'w' => Some("w"),
         _ => None,
     }
 }
@@ -471,48 +481,48 @@ fn get_single_char_initial(c: char) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn microsoft_scheme_basic() {
         let scheme = DoublePinyinScheme::Microsoft.data();
-        
+
         // Test basic conversion: "uh" -> "shang"
         // u=sh, h=ang
         let result = double_to_full_pinyin('u', 'h', &scheme);
         assert_eq!(result, Some("shang".to_string()));
-        
+
         // Test: "ui" -> "shi"
         // u=sh, i=i
         let result = double_to_full_pinyin('u', 'i', &scheme);
         assert_eq!(result, Some("shi".to_string()));
     }
-    
+
     #[test]
     fn microsoft_scheme_regular_initial() {
         let scheme = DoublePinyinScheme::Microsoft.data();
-        
+
         // "bh" -> "bang" (b=b, h=ang)
         let result = double_to_full_pinyin('b', 'h', &scheme);
         assert_eq!(result, Some("bang".to_string()));
     }
-    
+
     #[test]
     fn microsoft_scheme_special_vowels() {
         let scheme = DoublePinyinScheme::Microsoft.data();
-        
+
         // "aa" -> "a"
         let result = double_to_full_pinyin('a', 'a', &scheme);
         assert_eq!(result, Some("a".to_string()));
-        
+
         // "ee" -> "e"
         let result = double_to_full_pinyin('e', 'e', &scheme);
         assert_eq!(result, Some("e".to_string()));
     }
-    
+
     #[test]
     fn ziranma_scheme_basic() {
         let scheme = DoublePinyinScheme::ZiRanMa.data();
-        
+
         // ZiRanMa has different yunmu mappings
         // "ug" -> "shang" (u=sh, g=ang)
         let result = double_to_full_pinyin('u', 'g', &scheme);

@@ -98,13 +98,17 @@ impl Composition {
 
     /// Get the segment at the cursor position, if any.
     pub fn segment_at_cursor(&self) -> Option<&Segment> {
-        self.segments.iter().find(|seg| seg.range.contains(&self.cursor))
+        self.segments
+            .iter()
+            .find(|seg| seg.range.contains(&self.cursor))
     }
 
     /// Get mutable reference to segment at cursor.
     pub fn segment_at_cursor_mut(&mut self) -> Option<&mut Segment> {
         let cursor = self.cursor;
-        self.segments.iter_mut().find(|seg| seg.range.contains(&cursor))
+        self.segments
+            .iter_mut()
+            .find(|seg| seg.range.contains(&cursor))
     }
 
     /// Confirm all segments.
@@ -157,7 +161,7 @@ mod tests {
     fn test_set_text() {
         let mut comp = Composition::new();
         comp.set_text("你好".to_string());
-        
+
         assert_eq!(comp.preedit, "你好");
         assert_eq!(comp.cursor, 6);
     }
@@ -165,11 +169,11 @@ mod tests {
     #[test]
     fn test_segments() {
         let mut comp = Composition::from_text("你好世界".to_string());
-        
+
         // Add segments for "你好" and "世界"
         comp.add_segment(0..6, false);
         comp.add_segment(6..12, false);
-        
+
         assert_eq!(comp.segments.len(), 2);
         assert_eq!(comp.segments[0].range, 0..6);
         assert_eq!(comp.segments[1].range, 6..12);
@@ -180,17 +184,17 @@ mod tests {
         let mut comp = Composition::from_text("你好世界".to_string());
         comp.add_segment(0..6, false);
         comp.add_segment(6..12, false);
-        
+
         // Cursor at start of first segment
         comp.set_cursor(0);
         assert!(comp.segment_at_cursor().is_some());
         assert_eq!(comp.segment_at_cursor().unwrap().range, 0..6);
-        
+
         // Cursor in second segment
         comp.set_cursor(8);
         assert!(comp.segment_at_cursor().is_some());
         assert_eq!(comp.segment_at_cursor().unwrap().range, 6..12);
-        
+
         // Cursor at end (no segment)
         comp.set_cursor(12);
         assert!(comp.segment_at_cursor().is_none());
@@ -200,9 +204,9 @@ mod tests {
     fn test_confirm_segments() {
         let mut comp = Composition::from_text("你好".to_string());
         comp.add_segment(0..6, false);
-        
+
         assert!(!comp.segments[0].confirmed);
-        
+
         comp.confirm_all();
         assert!(comp.segments[0].confirmed);
     }
@@ -212,7 +216,7 @@ mod tests {
         let mut comp = Composition::from_text("你好世界".to_string());
         comp.add_segment(0..6, false);
         comp.add_segment(6..12, false);
-        
+
         assert_eq!(comp.segment_text(&comp.segments[0]), "你好");
         assert_eq!(comp.segment_text(&comp.segments[1]), "世界");
     }
@@ -221,7 +225,7 @@ mod tests {
     fn test_clear() {
         let mut comp = Composition::from_text("你好".to_string());
         comp.add_segment(0..6, false);
-        
+
         comp.clear();
         assert!(comp.is_empty());
         assert_eq!(comp.cursor, 0);

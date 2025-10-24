@@ -1,6 +1,6 @@
 //! Cloud input support for rare phrases and predictions.
 //!
-//! **STATUS (2025-10-24)**: 
+//! **STATUS (2025-10-24)**:
 //! - Google Input Tools API: REMOVED (was shut down in 2011)
 //! - Baidu Input API: NOT WORKING (network failure, may need auth)
 //! - Custom endpoint: WORKING (requires user-deployed server)
@@ -19,7 +19,7 @@ use std::time::Duration;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CloudProvider {
     /// Baidu Input API (most popular in China)
-    /// 
+    ///
     /// **STATUS**: Currently not working (network failure as of 2025-01-16).
     /// May require authentication or different endpoint.
     Baidu,
@@ -100,7 +100,10 @@ impl CloudInput {
     }
 
     /// Blocking query implementation.
-    fn query_blocking(&self, pinyin: &str) -> Result<Vec<CloudCandidate>, Box<dyn std::error::Error>> {
+    fn query_blocking(
+        &self,
+        pinyin: &str,
+    ) -> Result<Vec<CloudCandidate>, Box<dyn std::error::Error>> {
         match &self.provider {
             CloudProvider::Baidu => self.query_baidu(pinyin),
             CloudProvider::Custom(url) => self.query_custom(url, pinyin),
@@ -159,7 +162,11 @@ impl CloudInput {
     ///
     /// Expected response format:
     /// JSON array: [{"text": "你好", "confidence": 0.95}, ...]
-    fn query_custom(&self, url: &str, pinyin: &str) -> Result<Vec<CloudCandidate>, Box<dyn std::error::Error>> {
+    fn query_custom(
+        &self,
+        url: &str,
+        pinyin: &str,
+    ) -> Result<Vec<CloudCandidate>, Box<dyn std::error::Error>> {
         let client = reqwest::blocking::Client::builder()
             .timeout(Duration::from_millis(self.timeout_ms))
             .build()?;
@@ -168,10 +175,7 @@ impl CloudInput {
             "query": pinyin,
         });
 
-        let response = client
-            .post(url)
-            .json(&body)
-            .send()?;
+        let response = client.post(url).json(&body).send()?;
 
         let candidates: Vec<CloudCandidate> = response.json()?;
         Ok(candidates)
@@ -199,10 +203,10 @@ mod tests {
     fn test_enable_disable() {
         let mut cloud = CloudInput::new(CloudProvider::Baidu);
         assert!(!cloud.is_enabled());
-        
+
         cloud.set_enabled(true);
         assert!(cloud.is_enabled());
-        
+
         cloud.set_enabled(false);
         assert!(!cloud.is_enabled());
     }
@@ -211,7 +215,7 @@ mod tests {
     fn test_set_timeout() {
         let mut cloud = CloudInput::new(CloudProvider::Baidu);
         assert_eq!(cloud.timeout_ms, 500);
-        
+
         cloud.set_timeout(1000);
         assert_eq!(cloud.timeout_ms, 1000);
     }
@@ -220,7 +224,7 @@ mod tests {
     fn test_query_when_disabled() {
         let cloud = CloudInput::new(CloudProvider::Baidu);
         assert!(!cloud.is_enabled());
-        
+
         let results = cloud.query("nihao");
         assert!(results.is_empty());
     }
@@ -229,7 +233,7 @@ mod tests {
     fn test_query_empty_input() {
         let mut cloud = CloudInput::new(CloudProvider::Baidu);
         cloud.set_enabled(true);
-        
+
         let results = cloud.query("");
         assert!(results.is_empty());
     }
@@ -240,7 +244,7 @@ mod tests {
             text: "你好".to_string(),
             confidence: 0.95,
         };
-        
+
         assert_eq!(candidate.text, "你好");
         assert_eq!(candidate.confidence, 0.95);
     }
@@ -249,7 +253,7 @@ mod tests {
     fn test_cloud_provider_variants() {
         let baidu = CloudProvider::Baidu;
         let custom = CloudProvider::Custom("https://example.com/api".to_string());
-        
+
         assert_eq!(baidu, CloudProvider::Baidu);
         assert!(matches!(custom, CloudProvider::Custom(_)));
     }
@@ -261,13 +265,15 @@ mod tests {
     fn test_query_baidu_real_network() {
         let mut cloud = CloudInput::new(CloudProvider::Baidu);
         cloud.set_enabled(true);
-        
+
         let results = cloud.query("nihao");
-        
+
         // If network is available, we should get results
         if !results.is_empty() {
             println!("Baidu results for 'nihao': {:?}", results);
-            assert!(results[0].text.contains("你好") || results.iter().any(|c| c.text.contains("你好")));
+            assert!(
+                results[0].text.contains("你好") || results.iter().any(|c| c.text.contains("你好"))
+            );
         }
     }
 }

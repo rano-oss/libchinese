@@ -9,8 +9,8 @@
 //!
 //! Run with: cargo run --example cli_ime
 
+use libpinyin::{Engine, ImeEngine, KeyEvent, KeyResult, Parser};
 use std::io::{self, Write};
-use libpinyin::{ImeEngine, KeyEvent, KeyResult, Parser, Engine};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== libpinyin CLI IME Demo (Phase 2: Editor Architecture) ===");
@@ -41,7 +41,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let data_dir = std::env::current_dir()?.join("data");
     let backend = Engine::from_data_dir(&data_dir)?;
     let mut ime = ImeEngine::from_arc_with_page_size(backend.inner_arc(), 9);
-    
+
     println!("✓ Engine loaded successfully!");
     println!();
     println!("Try typing 'nihao,' to see phonetic → punctuation mode switching!");
@@ -68,9 +68,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ' ' => KeyEvent::Space,
                 '\n' | '\r' => KeyEvent::Enter,
                 '1'..='9' => KeyEvent::Number((ch as u8) - b'0'),
-                ',' | '.' | ';' | '!' | '?' | '\'' | '"' | '(' | ')' | '[' | ']' | '{' | '}' | '<' | '>' | ':' => {
-                    KeyEvent::Char(ch)
-                }
+                ',' | '.' | ';' | '!' | '?' | '\'' | '"' | '(' | ')' | '[' | ']' | '{' | '}'
+                | '<' | '>' | ':' => KeyEvent::Char(ch),
                 _ if ch.is_ascii_lowercase() => KeyEvent::Char(ch),
                 _ => {
                     println!("  ⚠ Ignoring unsupported character: {}", ch);
@@ -79,7 +78,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             };
 
             let result = ime.process_key(key);
-            
+
             // Display IME state after each key
             display_ime_state(&ime);
 
@@ -108,7 +107,7 @@ fn display_ime_state(ime: &ImeEngine<Parser>) {
     // Show mode and auxiliary text prominently
     if session.is_active() {
         println!("  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-        
+
         // Mode indicator
         let mode_icon = match session.mode() {
             libpinyin::InputMode::Phonetic => "🔤",
@@ -118,12 +117,12 @@ fn display_ime_state(ime: &ImeEngine<Parser>) {
             libpinyin::InputMode::Passthrough => "🔄",
         };
         println!("  {} Mode: {:?}", mode_icon, session.mode());
-        
+
         // Auxiliary text (helpful hints)
         if !context.auxiliary_text.is_empty() {
             println!("  ℹ {}", context.auxiliary_text);
         }
-        
+
         println!("  ──────────────────────────────────────");
     }
 
@@ -136,11 +135,15 @@ fn display_ime_state(ime: &ImeEngine<Parser>) {
     if !context.candidates.is_empty() {
         println!("  🎯 Candidates:");
         for (i, candidate) in context.candidates.iter().enumerate() {
-            let marker = if i == context.candidate_cursor { "▶" } else { " " };
+            let marker = if i == context.candidate_cursor {
+                "▶"
+            } else {
+                " "
+            };
             println!("     {} {}. {}", marker, i + 1, candidate);
         }
     }
-    
+
     if session.is_active() {
         println!("  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     }

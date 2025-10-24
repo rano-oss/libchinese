@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use redb::{Database, TableDefinition, ReadableTable};
+use redb::{Database, ReadableTable, TableDefinition};
 
 /// UserDict backed by `redb`.
 #[derive(Clone, Debug)]
@@ -183,9 +183,14 @@ impl UserDict {
     }
 
     /// Learn a bigram with a custom count delta.
-    pub fn learn_bigram_with_count(&self, w1: &str, w2: &str, delta: u64) -> Result<(), redb::Error> {
+    pub fn learn_bigram_with_count(
+        &self,
+        w1: &str,
+        w2: &str,
+        delta: u64,
+    ) -> Result<(), redb::Error> {
         let key = Self::encode_bigram_key(w1, w2);
-        
+
         // Read current value
         let cur = {
             let r = self.db.begin_read()?;
@@ -262,14 +267,14 @@ impl UserDict {
         let mut out = HashMap::new();
         let r = self.db.begin_read()?;
         let prefix = format!("{}\0", w1);
-        
+
         match r.open_table(Self::bigram_table_def()) {
             Ok(table) => {
                 // Iterate through all bigrams
                 for item in table.iter()? {
                     let (key, count) = item?;
                     let key_str = key.value();
-                    
+
                     // Check if key starts with our prefix
                     if key_str.starts_with(&prefix) {
                         if let Some((_, w2)) = Self::decode_bigram_key(key_str) {
@@ -468,16 +473,16 @@ mod tests {
                 .unwrap()
                 .as_nanos()
         ));
-        
+
         let dict = UserDict::new(&tmp).unwrap();
-        
+
         dict.add_phrase("测试", 100).unwrap();
         dict.add_phrase("示例", 50).unwrap();
         dict.add_phrase("你好", 200).unwrap();
-        
+
         let all = dict.list_all();
         assert_eq!(all.len(), 3);
-        
+
         // Check all phrases exist with correct frequencies
         assert!(all.contains(&("测试".to_string(), 100)));
         assert!(all.contains(&("示例".to_string(), 50)));
@@ -494,15 +499,15 @@ mod tests {
                 .unwrap()
                 .as_nanos()
         ));
-        
+
         let dict = UserDict::new(&tmp).unwrap();
-        
+
         dict.add_phrase("删除我", 10).unwrap();
         assert_eq!(dict.frequency("删除我"), 10);
-        
+
         dict.delete_phrase("删除我").unwrap();
         assert_eq!(dict.frequency("删除我"), 0);
-        
+
         let all = dict.list_all();
         assert_eq!(all.len(), 0);
     }
@@ -517,12 +522,12 @@ mod tests {
                 .unwrap()
                 .as_nanos()
         ));
-        
+
         let dict = UserDict::new(&tmp).unwrap();
-        
+
         dict.add_phrase("更新", 100).unwrap();
         assert_eq!(dict.frequency("更新"), 100);
-        
+
         dict.update_frequency("更新", 500).unwrap();
         assert_eq!(dict.frequency("更新"), 500);
     }
@@ -537,20 +542,20 @@ mod tests {
                 .unwrap()
                 .as_nanos()
         ));
-        
+
         let dict = UserDict::new(&tmp).unwrap();
-        
+
         dict.add_phrase("你好", 100).unwrap();
         dict.add_phrase("你好吗", 50).unwrap();
         dict.add_phrase("我好", 30).unwrap();
         dict.add_phrase("你是谁", 40).unwrap();
-        
+
         let results = dict.search_by_prefix("你").unwrap();
         assert_eq!(results.len(), 3);
         assert!(results.contains(&("你好".to_string(), 100)));
         assert!(results.contains(&("你好吗".to_string(), 50)));
         assert!(results.contains(&("你是谁".to_string(), 40)));
-        
+
         let results2 = dict.search_by_prefix("我").unwrap();
         assert_eq!(results2.len(), 1);
         assert!(results2.contains(&("我好".to_string(), 30)));
@@ -566,16 +571,16 @@ mod tests {
                 .unwrap()
                 .as_nanos()
         ));
-        
+
         let dict = UserDict::new(&tmp).unwrap();
-        
+
         dict.add_phrase("重复", 100).unwrap();
         assert_eq!(dict.frequency("重复"), 100);
-        
+
         // Add again with different frequency - should overwrite
         dict.add_phrase("重复", 200).unwrap();
         assert_eq!(dict.frequency("重复"), 200);
-        
+
         // Should only have one entry
         let all = dict.list_all();
         assert_eq!(all.len(), 1);
@@ -591,12 +596,12 @@ mod tests {
                 .unwrap()
                 .as_nanos()
         ));
-        
+
         let dict = UserDict::new(&tmp).unwrap();
-        
+
         // Should not panic or error
         dict.delete_phrase("不存在").unwrap();
-        
+
         assert_eq!(dict.frequency("不存在"), 0);
         assert_eq!(dict.list_all().len(), 0);
     }
@@ -611,18 +616,18 @@ mod tests {
                 .unwrap()
                 .as_nanos()
         ));
-        
+
         let dict = UserDict::new(&tmp).unwrap();
-        
+
         // Learn some bigrams
         dict.learn_bigram("你", "好");
-        dict.learn_bigram("你", "好");  // Learn again
+        dict.learn_bigram("你", "好"); // Learn again
         dict.learn_bigram("好", "的");
-        
+
         // Check frequencies
         assert_eq!(dict.bigram_frequency("你", "好"), 2);
         assert_eq!(dict.bigram_frequency("好", "的"), 1);
-        assert_eq!(dict.bigram_frequency("你", "是"), 0);  // Not learned
+        assert_eq!(dict.bigram_frequency("你", "是"), 0); // Not learned
     }
 
     #[test]
@@ -635,9 +640,9 @@ mod tests {
                 .unwrap()
                 .as_nanos()
         ));
-        
+
         let dict = UserDict::new(&tmp).unwrap();
-        
+
         // Learn multiple bigrams starting with "好"
         dict.learn_bigram("好", "的");
         dict.learn_bigram("好", "的");
@@ -645,14 +650,14 @@ mod tests {
         dict.learn_bigram("好", "啊");
         dict.learn_bigram("好", "啊");
         dict.learn_bigram("好", "啊");
-        
+
         let bigrams = dict.get_bigrams_after("好");
-        
+
         assert_eq!(bigrams.len(), 3);
         assert_eq!(bigrams.get("的"), Some(&2));
         assert_eq!(bigrams.get("吗"), Some(&1));
         assert_eq!(bigrams.get("啊"), Some(&3));
-        
+
         // Non-existent prefix returns empty
         let empty = dict.get_bigrams_after("不存在");
         assert_eq!(empty.len(), 0);
@@ -668,19 +673,28 @@ mod tests {
                 .unwrap()
                 .as_nanos()
         ));
-        
+
         let dict = UserDict::new(&tmp).unwrap();
-        
+
         dict.learn_bigram("你", "好");
         dict.learn_bigram("好", "的");
         dict.learn_bigram("我", "是");
-        
+
         let snapshot = dict.snapshot_bigrams();
-        
+
         assert_eq!(snapshot.len(), 3);
-        assert_eq!(snapshot.get(&("你".to_string(), "好".to_string())), Some(&1));
-        assert_eq!(snapshot.get(&("好".to_string(), "的".to_string())), Some(&1));
-        assert_eq!(snapshot.get(&("我".to_string(), "是".to_string())), Some(&1));
+        assert_eq!(
+            snapshot.get(&("你".to_string(), "好".to_string())),
+            Some(&1)
+        );
+        assert_eq!(
+            snapshot.get(&("好".to_string(), "的".to_string())),
+            Some(&1)
+        );
+        assert_eq!(
+            snapshot.get(&("我".to_string(), "是".to_string())),
+            Some(&1)
+        );
     }
 
     #[test]
@@ -693,14 +707,14 @@ mod tests {
                 .unwrap()
                 .as_nanos()
         ));
-        
+
         let dict = UserDict::new(&tmp).unwrap();
-        
+
         // Learn with custom delta (like upstream's initial_seed boost)
         dict.learn_bigram_with_count("你", "好", 10).unwrap();
-        
+
         assert_eq!(dict.bigram_frequency("你", "好"), 10);
-        
+
         // Increment again
         dict.learn_bigram("你", "好");
         assert_eq!(dict.bigram_frequency("你", "好"), 11);

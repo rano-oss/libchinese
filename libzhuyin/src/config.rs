@@ -10,12 +10,11 @@
 ///
 /// ```rust
 /// use libzhuyin::ZhuyinConfig;
-/// 
+///
 /// let config = ZhuyinConfig::default();
 /// let base_config = config.into_base();
 /// // Use base_config with Model::new()
 /// ```
-
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -23,18 +22,17 @@ pub struct ZhuyinConfig {
     /// Base configuration fields (fuzzy, weights, sorting, etc.)
     #[serde(flatten)]
     pub base: libchinese_core::Config,
-    
+
     /// Allow incomplete Zhuyin syllables (e.g., "ㄓ", "ㄕ", "ㄈ" without finals)
     pub zhuyin_incomplete: bool,
-    
+
     // Zhuyin keyboard layout correction options
-    
     /// Handle shuffle errors (e.g., tone mark position in some layouts)
     pub zhuyin_correct_shuffle: bool,
-    
+
     /// HSU keyboard layout corrections
     pub zhuyin_correct_hsu: bool,
-    
+
     /// ETEN26 keyboard layout corrections
     pub zhuyin_correct_eten26: bool,
 }
@@ -43,7 +41,7 @@ impl Default for ZhuyinConfig {
     fn default() -> Self {
         let mut base = libchinese_core::Config::default();
         base.fuzzy = zhuyin_default_fuzzy_rules();
-        
+
         Self {
             base,
             zhuyin_incomplete: true,
@@ -59,12 +57,12 @@ impl ZhuyinConfig {
     pub fn into_base(self) -> libchinese_core::Config {
         self.base
     }
-    
+
     /// Get a reference to the base config
     pub fn base(&self) -> &libchinese_core::Config {
         &self.base
     }
-    
+
     /// Get a mutable reference to the base config
     pub fn base_mut(&mut self) -> &mut libchinese_core::Config {
         &mut self.base

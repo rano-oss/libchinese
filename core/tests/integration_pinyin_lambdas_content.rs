@@ -1,5 +1,5 @@
 use libchinese_core::Lambdas;
-use redb::{TableDefinition, ReadableTable};
+use redb::{ReadableTable, TableDefinition};
 
 #[test]
 fn check_pinyin_lambdas_content_if_present() {
@@ -19,7 +19,9 @@ fn check_pinyin_lambdas_content_if_present() {
     };
 
     let rt = db.begin_read().expect("begin_read");
-    let table: redb::ReadOnlyTable<u64, Vec<u8>> = rt.open_table(TableDefinition::new("lambdas")).expect("open table");
+    let table: redb::ReadOnlyTable<u64, Vec<u8>> = rt
+        .open_table(TableDefinition::new("lambdas"))
+        .expect("open table");
 
     // find first entry and deserialize
     for item in table.iter().expect("table.iter") {
@@ -28,10 +30,18 @@ fn check_pinyin_lambdas_content_if_present() {
         let l = bincode::deserialize::<Lambdas>(&bytes).expect("deserialize lambdas");
         let arr = l.0;
         for w in arr.iter() {
-            assert!((*w >= 0.0) && (*w <= 1.0), "lambda weight out of range: {}", w);
+            assert!(
+                (*w >= 0.0) && (*w <= 1.0),
+                "lambda weight out of range: {}",
+                w
+            );
         }
         let sum: f32 = arr.iter().copied().sum();
-        assert!((sum - 1.0).abs() < 1e-2, "lambdas do not sum to ~1: {}", sum);
+        assert!(
+            (sum - 1.0).abs() < 1e-2,
+            "lambdas do not sum to ~1: {}",
+            sum
+        );
         // success for first entry
         return;
     }
