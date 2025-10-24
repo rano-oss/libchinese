@@ -189,7 +189,7 @@ impl<P: SyllableParser> PhoneticEditor<P> {
             return EditorResult::PassThrough;
         }
 
-        if n < 1 || n > 9 {
+        if !(1..=9).contains(&n) {
             return EditorResult::PassThrough;
         }
 
@@ -275,7 +275,7 @@ impl<P: SyllableParser> Editor for PhoneticEditor<P> {
         // Convert to our Candidate type
         let candidates: Vec<Candidate> = backend_candidates
             .into_iter()
-            .map(|c| Candidate::new(c.text, c.score as f32))
+            .map(|c| Candidate::new(c.text, c.score))
             .collect();
 
         session.candidates_mut().set_candidates(candidates);
@@ -383,7 +383,7 @@ impl<P: SyllableParser> Editor for SuggestionEditor<P> {
 
             // Number selection
             KeyEvent::Number(n) => {
-                if n < 1 || n > 9 {
+                if !(1..=9).contains(&n) {
                     return EditorResult::PassThrough;
                 }
 
@@ -505,7 +505,7 @@ impl<P: SyllableParser> Editor for SuggestionEditor<P> {
             .map(|(text, log_prob)| {
                 // Convert log probability to a reasonable score
                 // Higher log_prob (less negative) = better score
-                let score = (log_prob.exp() * 100.0) as f64;
+                let score = (log_prob.exp() * 100.0);
                 Candidate::new(text, score as f32)
             })
             .collect();
@@ -641,11 +641,7 @@ impl PunctuationEditor {
 
     /// Handle selection of a punctuation candidate.
     fn select_candidate(&mut self, session: &mut ImeSession) -> Option<String> {
-        if let Some(candidate) = session.candidates().selected_candidate() {
-            Some(candidate.text.clone())
-        } else {
-            None
-        }
+        session.candidates().selected_candidate().map(|candidate| candidate.text.clone())
     }
 }
 
@@ -660,7 +656,7 @@ impl Editor for PunctuationEditor {
         match key {
             // Number selection
             KeyEvent::Number(n) => {
-                if n < 1 || n > 9 {
+                if !(1..=9).contains(&n) {
                     return EditorResult::PassThrough;
                 }
 

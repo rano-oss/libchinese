@@ -118,7 +118,7 @@ impl CandidateList {
         if self.candidates.is_empty() {
             0
         } else {
-            (self.candidates.len() + self.page_size - 1) / self.page_size
+            self.candidates.len().div_ceil(self.page_size)
         }
     }
 
@@ -136,11 +136,7 @@ impl CandidateList {
     fn current_page_len(&self) -> usize {
         let start = self.current_page * self.page_size;
         let end = (start + self.page_size).min(self.candidates.len());
-        if end > start {
-            end - start
-        } else {
-            0
-        }
+        end.saturating_sub(start)
     }
 
     /// Get the range of candidates for the current page.

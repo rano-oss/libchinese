@@ -54,6 +54,12 @@ pub struct Parser {
     fuzzy: FuzzyMap,
 }
 
+impl Default for Parser {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Parser {
     /// Create an empty parser.
     pub fn new() -> Self {
@@ -338,11 +344,10 @@ impl Parser {
                     if cand_keys < best_num_keys[pos] {
                         return true;
                     }
-                    if cand_keys == best_num_keys[pos] {
-                        if cand_dist < best_distance[pos] {
+                    if cand_keys == best_num_keys[pos]
+                        && cand_dist < best_distance[pos] {
                             return true;
                         }
-                    }
                 }
             }
             false
@@ -461,7 +466,7 @@ impl Parser {
                                 let cand_parsed = len + best_parsed[end]; // Use original length for parsing position
                                 let cand_keys = 1 + best_num_keys[end];
                                 // Use the per-rule penalty from fuzzy map, scaled by config multiplier
-                                let fuzzy_penalty = ((penalty as f32)
+                                let fuzzy_penalty = (penalty
                                     * (config.fuzzy_penalty_multiplier as f32))
                                     as i32;
                                 let cand_dist = fuzzy_penalty + best_distance[end];
@@ -915,7 +920,7 @@ impl Parser {
             }
 
             // prune next_beam to beam_width using our comparator
-            next_beam.sort_by(|a, b| state_cmp(a, b));
+            next_beam.sort_by(state_cmp);
             if next_beam.len() > beam_width {
                 next_beam.truncate(beam_width);
             }
@@ -929,7 +934,7 @@ impl Parser {
         }
 
         // Sort completed states and return top-k token sequences
-        completed.sort_by(|a, b| state_cmp(a, b));
+        completed.sort_by(state_cmp);
         let mut out: Vec<Vec<Syllable>> = Vec::new();
         for st in completed.into_iter().take(k) {
             out.push(st.tokens);

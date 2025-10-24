@@ -93,6 +93,12 @@ pub struct NGramModel {
     interpolator: Interpolator,
 }
 
+impl Default for NGramModel {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl NGramModel {
     /// Create an empty model with an empty interpolator.
     pub fn new() -> Self {
@@ -214,7 +220,7 @@ impl NGramModel {
         // Calculate bigram with backoff
         let bigram_prob = if i >= 1 {
             let prev_token = &tokens[i - 1];
-            self.get_bigram(prev_token, token).unwrap_or_else(|| {
+            self.get_bigram(prev_token, token).unwrap_or({
                 // Backoff: use unigram with penalty for unseen bigram
                 unigram_prob + unseen_bigram_penalty
             })
@@ -228,7 +234,7 @@ impl NGramModel {
             let prev2_token = &tokens[i - 2];
             let prev_token = &tokens[i - 1];
             self.get_trigram(prev2_token, prev_token, token)
-                .unwrap_or_else(|| {
+                .unwrap_or({
                     // Backoff: use bigram with penalty for unseen trigram
                     bigram_prob + unseen_trigram_penalty
                 })

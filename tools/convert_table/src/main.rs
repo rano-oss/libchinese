@@ -65,7 +65,7 @@ fn build_fst_and_bincode<P: AsRef<Path>>(
                             let raw = convert_zhuyin_key_to_pinyin(&key);
                             let parts: Vec<String> = raw
                                 .split('\'')
-                                .map(|p| normalize_pinyin_syllable(p))
+                                .map(normalize_pinyin_syllable)
                                 .collect();
                             parts.join("'")
                         }
@@ -103,7 +103,7 @@ fn build_fst_and_bincode<P: AsRef<Path>>(
         entries.push((k, v));
     }
     // payloads vector is the serialized lists in the same order
-    let mut payloads: Vec<Vec<LexEntry>> = entries.iter().map(|(_, v)| v.clone()).collect();
+    let payloads: Vec<Vec<LexEntry>> = entries.iter().map(|(_, v)| v.clone()).collect();
     map_builder.finish()?;
 
     // write bincode vector (lexicon payloads)
@@ -174,14 +174,14 @@ fn build_fst_and_bincode<P: AsRef<Path>>(
     let mut right_sets_by_left: HashMap<String, HashSet<String>> = HashMap::new();
     let mut right_sets_by_bigram: HashMap<(String, String), HashSet<String>> = HashMap::new();
 
-    for ((w1, w2), _) in &bigram_counts {
+    for (w1, w2) in bigram_counts.keys() {
         left_sets.entry(w2.clone()).or_default().insert(w1.clone());
         right_sets_by_left
             .entry(w1.clone())
             .or_default()
             .insert(w2.clone());
     }
-    for ((w1, w2, w3), _) in &trigram_counts {
+    for (w1, w2, w3) in trigram_counts.keys() {
         right_sets_by_bigram
             .entry((w1.clone(), w2.clone()))
             .or_default()
@@ -286,7 +286,7 @@ fn build_fst_and_bincode<P: AsRef<Path>>(
         } else {
             0.0
         };
-        Some(((first + lambda * p_cont_w2) as f32))
+        Some((first + lambda * p_cont_w2) as f32)
     };
 
     for ((w1, w2), &cnt) in &bigram_counts {
@@ -613,8 +613,8 @@ fn convert_zhuyin_syllable_to_pinyin(syll: &str) -> String {
 
     // Normalization rules for syllables starting with i/u/v
     // If starts with i + vowel -> replace leading i with y (e.g., ia -> ya, iou -> you)
-    if out.starts_with('i') {
-        if out.len() >= 2 {
+    if out.starts_with('i')
+        && out.len() >= 2 {
             let rest = &out[1..];
             // Only convert when rest starts with a vowel
             if rest.starts_with('a')
@@ -626,10 +626,9 @@ fn convert_zhuyin_syllable_to_pinyin(syll: &str) -> String {
                 out = format!("y{}", rest);
             }
         }
-    }
     // If starts with u + vowel -> w prefix
-    if out.starts_with('u') {
-        if out.len() >= 2 {
+    if out.starts_with('u')
+        && out.len() >= 2 {
             let rest = &out[1..];
             if rest.starts_with('a')
                 || rest.starts_with('o')
@@ -639,7 +638,6 @@ fn convert_zhuyin_syllable_to_pinyin(syll: &str) -> String {
                 out = format!("w{}", rest);
             }
         }
-    }
     // If starts with v (we used v for ü), convert to yu or just u-like handling
     if out.starts_with('v') {
         let rest = &out[1..];

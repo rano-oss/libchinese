@@ -146,7 +146,7 @@ fn inspect_dataset(dataset_path: &str) {
         let mut warnings = 0;
         for (i, lambda) in lambdas.iter().enumerate() {
             let sum = lambda.0[0] + lambda.0[1] + lambda.0[2];
-            if (sum - 1.0).abs() > 0.01 || lambda.0.iter().any(|&v| v < 0.0 || v > 1.0) {
+            if (sum - 1.0).abs() > 0.01 || lambda.0.iter().any(|&v| !(0.0..=1.0).contains(&v)) {
                 if warnings < 3 {
                     println!(
                         "    ⚠️  Lambda {} has unusual values: [{:.4}, {:.4}, {:.4}] (sum={:.4})",

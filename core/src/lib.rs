@@ -13,7 +13,6 @@
 //! - `Lexicon` - Pinyin/Zhuyin → Hanzi dictionary lookup
 //! - `UserDict` - Persistent user learning and frequency adaptation
 //! - `Config` - Configuration and feature flags
-use bincode;
 use fst::Map;
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
