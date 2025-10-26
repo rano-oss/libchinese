@@ -27,7 +27,7 @@ pub mod trie;
 pub use trie::TrieNode;
 
 pub mod fuzzy;
-pub use fuzzy::{FuzzyMap, FuzzyRule};
+pub use fuzzy::FuzzyMap;
 
 pub mod engine;
 pub use engine::{Engine, SyllableParser, SyllableType};
@@ -374,7 +374,7 @@ pub mod utils {
 
 /// Lexicon entry matching convert_table output format
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct LexEntry {
+pub(crate) struct LexEntry {
     pub utf8: String,
     pub token: u32,
     pub freq: u32,
@@ -535,8 +535,6 @@ pub struct Model {
     pub word_bigram: Arc<WordBigram>,
     pub userdict: UserDict,
     pub config: RefCell<Config>,
-    /// Total frequency of all lexicon entries (for unigram normalization)
-    pub total_unigram_freq: u64,
 }
 
 impl Model {
@@ -547,13 +545,11 @@ impl Model {
         userdict: UserDict,
         config: Config,
     ) -> Self {
-        let total_unigram_freq = lexicon.compute_total_frequency();
         Self {
             lexicon: Arc::new(lexicon),
             word_bigram: Arc::new(word_bigram),
             userdict,
             config: RefCell::new(config),
-            total_unigram_freq,
         }
     }
 }

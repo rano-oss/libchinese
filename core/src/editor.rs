@@ -34,18 +34,6 @@ pub enum EditorResult {
 ///
 /// Each editor (Phonetic, Punctuation, Suggestion) implements this trait
 /// to provide mode-specific key processing and candidate generation.
-///
-/// # Example
-///
-/// ```ignore
-/// use libchinese_core::{PhoneticEditor, Editor, KeyEvent, ImeSession, Engine};
-/// # use std::sync::Arc;
-/// # let backend: Arc<Engine<_>> = todo!();
-/// # let mut session = ImeSession::new();
-///
-/// let mut editor = PhoneticEditor::new(backend);
-/// let result = editor.process_key(KeyEvent::Char('n'), &mut session);
-/// ```
 pub trait Editor {
     /// Process a key event in this editor's context.
     ///
