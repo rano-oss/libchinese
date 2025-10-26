@@ -14,8 +14,8 @@
 // - Verify exact parity with upstream DP cost model
 // - Add comprehensive test vectors from upstream test suite
 
-use libchinese_core::TrieNode;
 use libchinese_core::FuzzyMap;
+use libchinese_core::TrieNode;
 
 /// A single matched syllable (a chunk of pinyin).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,14 +38,14 @@ impl Syllable {
     }
 }
 
-/// Parser providing segmentation using a trie and fuzzy rules (placeholder).
+/// Parser providing segmentation using a trie and fuzzy rules.
 ///
 /// Public entrypoints:
 /// - `Parser::insert_syllable` to seed the trie
 /// - `Parser::segment_best` to obtain the best segmentation
 ///
 /// Implementation notes:
-/// - This is a correctness-focused starter implementation. The upstream
+/// - The upstream
 ///   `pinyin_parser2.cpp` uses table-driven parsing and DP tailored for
 ///   pinyin syllable ambiguities. We will port the exact DP recurrence later.
 #[derive(Debug)]
@@ -54,10 +54,16 @@ pub struct Parser {
     fuzzy: FuzzyMap,
 }
 
+impl Default for Parser {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Parser {
     /// Create an empty parser.
     pub fn new() -> Self {
-        // Use standard pinyin fuzzy rules
+        // Use comprehensive fuzzy rules with complete syllable mappings
         let rules = crate::standard_fuzzy_rules();
         Self {
             trie: TrieNode::new(),
@@ -93,7 +99,8 @@ impl Parser {
     /// This exposes the parser's fuzzy map in a controlled way so tests can
     /// validate fuzzy alternatives without accessing private fields.
     pub fn fuzzy_alternatives(&self, syllable: &str) -> Vec<String> {
-        self.fuzzy.alternatives(syllable)
+        self.fuzzy
+            .alternatives(syllable)
             .into_iter()
             .map(|(alt, _penalty)| alt)
             .collect()
@@ -113,7 +120,7 @@ impl Parser {
     /// * `None` - If conversion fails (invalid scheme or invalid input)
     pub fn convert_double_pinyin(&self, input: &str, scheme_name: &str) -> Option<String> {
         use crate::double_pinyin::DoublePinyinScheme;
-        
+
         // Parse scheme name
         let scheme = match scheme_name.to_lowercase().as_str() {
             "microsoft" => DoublePinyinScheme::Microsoft,
@@ -124,11 +131,11 @@ impl Parser {
             "pinyinplusplus" => DoublePinyinScheme::PinYinPlusPlus,
             _ => return None,
         };
-        
+
         // Process input: split by non-alphanumeric (punctuation, spaces)
         let mut result = String::new();
         let mut current_word = String::new();
-        
+
         for ch in input.chars() {
             if ch.is_ascii_alphanumeric() {
                 current_word.push(ch);
@@ -144,13 +151,13 @@ impl Parser {
                 result.push(ch);
             }
         }
-        
+
         // Convert remaining word
         if !current_word.is_empty() {
             let converted = Self::convert_double_pinyin_word(&current_word, &scheme)?;
             result.push_str(&converted);
         }
-        
+
         Some(result)
     }
 
@@ -158,14 +165,17 @@ impl Parser {
     ///
     /// Processes input in 2-character chunks. Handles odd-length input by
     /// processing the last character separately.
-    fn convert_double_pinyin_word(word: &str, scheme: &crate::double_pinyin::DoublePinyinScheme) -> Option<String> {
+    fn convert_double_pinyin_word(
+        word: &str,
+        scheme: &crate::double_pinyin::DoublePinyinScheme,
+    ) -> Option<String> {
         use crate::double_pinyin::{double_to_full_pinyin, get_scheme_data};
-        
+
         let scheme_data = get_scheme_data(scheme);
         let chars: Vec<char> = word.chars().collect();
         let mut result = String::new();
         let mut i = 0;
-        
+
         while i < chars.len() {
             if i + 1 < chars.len() {
                 // Try 2-char conversion
@@ -185,7 +195,7 @@ impl Parser {
                 i += 1;
             }
         }
-        
+
         Some(result)
     }
 
@@ -202,8 +212,23 @@ impl Parser {
     /// normalized token (lowercase).
     ///
     /// For double pinyin support, use `segment_with_scheme` instead.
+    /// For custom penalty configuration, use `segment_best_with_config`.
     pub fn segment_best(&self, input: &str, allow_fuzzy: bool) -> Vec<Syllable> {
-        self.segment_with_scheme(input, allow_fuzzy, None)
+        // Use default config penalties
+        let config = libchinese_core::Config::default();
+        self.segment_with_config(input, allow_fuzzy, None, &config)
+    }
+
+    /// Perform segmentation with custom config for penalty tuning.
+    ///
+    /// This allows callers to adjust fuzzy penalties, correction penalties, etc.
+    pub fn segment_best_with_config(
+        &self,
+        input: &str,
+        allow_fuzzy: bool,
+        config: &libchinese_core::Config,
+    ) -> Vec<Syllable> {
+        self.segment_with_config(input, allow_fuzzy, None, config)
     }
 
     /// Perform segmentation with optional double pinyin scheme conversion.
@@ -222,6 +247,18 @@ impl Parser {
         allow_fuzzy: bool,
         scheme_name: Option<&str>,
     ) -> Vec<Syllable> {
+        let config = libchinese_core::Config::default();
+        self.segment_with_config(input, allow_fuzzy, scheme_name, &config)
+    }
+
+    /// Internal unified segmentation method with full configuration.
+    fn segment_with_config(
+        &self,
+        input: &str,
+        allow_fuzzy: bool,
+        scheme_name: Option<&str>,
+        config: &libchinese_core::Config,
+    ) -> Vec<Syllable> {
         // If double pinyin scheme specified, try to convert
         let processed_input = if let Some(scheme) = scheme_name {
             // Try to convert double pinyin to full pinyin
@@ -237,14 +274,19 @@ impl Parser {
         };
 
         // Now perform standard segmentation on the processed input
-        self.segment_best_internal(&processed_input, allow_fuzzy)
+        self.segment_best_internal(&processed_input, allow_fuzzy, config)
     }
 
     /// Internal segmentation method that does the actual DP work.
     ///
     /// This is separated out so that both segment_best and segment_with_scheme
     /// can use the same logic.
-    fn segment_best_internal(&self, input: &str, allow_fuzzy: bool) -> Vec<Syllable> {
+    fn segment_best_internal(
+        &self,
+        input: &str,
+        allow_fuzzy: bool,
+        config: &libchinese_core::Config,
+    ) -> Vec<Syllable> {
         // Normalize input: lowercase and remove whitespace
         let normalized: Vec<char> = input
             .to_ascii_lowercase()
@@ -259,7 +301,7 @@ impl Parser {
 
         // Enhanced DP state per position with improved cost modeling:
         // - best_cost[pos]: comprehensive cost including length, frequency, and penalty factors
-        // - best_parsed[pos]: total parsed characters (higher coverage is better) 
+        // - best_parsed[pos]: total parsed characters (higher coverage is better)
         // - best_num_keys[pos]: number of segments used (fewer segments preferred)
         // - best_distance[pos]: accumulated fuzzy/edit distance penalty (lower is better)
         // - best_choice[pos]: the chosen transition (end_pos, matched_string, fuzzy_flag)
@@ -302,10 +344,8 @@ impl Parser {
                     if cand_keys < best_num_keys[pos] {
                         return true;
                     }
-                    if cand_keys == best_num_keys[pos] {
-                        if cand_dist < best_distance[pos] {
-                            return true;
-                        }
+                    if cand_keys == best_num_keys[pos] && cand_dist < best_distance[pos] {
+                        return true;
                     }
                 }
             }
@@ -361,19 +401,20 @@ impl Parser {
                         break;
                     }
                     let substr: String = normalized[pos..pos + len].iter().collect();
-                    
+
                     // Try pinyin corrections first (ue/ve, v/u) - these have lower penalty than fuzzy
                     let corrections = self.apply_corrections(&substr);
                     for corrected in corrections {
                         if self.trie.contains_word(&corrected) && corrected != substr {
                             let end = pos + len;
                             if end <= n && !best_cost[end].is_infinite() {
-                                let seg_cost = self.calculate_segment_cost(&corrected, len, false) + 0.5;
+                                let seg_cost =
+                                    self.calculate_segment_cost(&corrected, len, false) + 0.5;
                                 let cand_cost = seg_cost + best_cost[end];
                                 let cand_parsed = len + best_parsed[end];
                                 let cand_keys = 1 + best_num_keys[end];
-                                // Correction penalty is less than fuzzy (200 vs varies)
-                                let correction_penalty = 200;
+                                // Correction penalty from config (default: 200)
+                                let correction_penalty = config.correction_penalty;
                                 let cand_dist = correction_penalty + best_distance[end];
 
                                 if should_replace(
@@ -396,7 +437,7 @@ impl Parser {
                             }
                         }
                     }
-                    
+
                     // Then try fuzzy alternatives
                     let alts = self.fuzzy.alternatives(&substr);
                     for (alt, penalty) in alts {
@@ -406,7 +447,7 @@ impl Parser {
                             // For different-length alternatives, adjust accordingly
                             let alt_len = alt.chars().count();
                             let original_len = substr.chars().count();
-                            
+
                             // For now, handle same-length and different-length cases
                             let end = if alt_len == original_len {
                                 pos + len
@@ -417,14 +458,15 @@ impl Parser {
                                 // original position length.
                                 pos + len
                             };
-                            
+
                             if end <= n && !best_cost[end].is_infinite() {
                                 let seg_cost = self.calculate_segment_cost(&alt, alt_len, true);
                                 let cand_cost = seg_cost + best_cost[end];
-                                let cand_parsed = len + best_parsed[end];  // Use original length for parsing position
+                                let cand_parsed = len + best_parsed[end]; // Use original length for parsing position
                                 let cand_keys = 1 + best_num_keys[end];
-                                // Use the per-rule penalty from fuzzy map
-                                let fuzzy_penalty = (penalty * 100.0) as i32; // Scale to integer
+                                // Use the per-rule penalty from fuzzy map, scaled by config multiplier
+                                let fuzzy_penalty =
+                                    (penalty * (config.fuzzy_penalty_multiplier as f32)) as i32;
                                 let cand_dist = fuzzy_penalty + best_distance[end];
 
                                 if should_replace(
@@ -453,24 +495,26 @@ impl Parser {
             // Try incomplete syllable matching if enabled (for partial input like "n" → "ni")
             // This should have higher penalty than complete matches but better than unknown fallback
             if allow_fuzzy && best_choice[pos].is_none() {
-                for len in 1..=3 {  // Try incomplete syllables up to 3 chars
+                for len in 1..=3 {
+                    // Try incomplete syllables up to 3 chars
                     if pos + len > n {
                         break;
                     }
                     let incomplete: String = normalized[pos..pos + len].iter().collect();
-                    
+
                     // Find any syllable in the trie that starts with this prefix
                     // We use the first completion as a representative match
                     if let Some(completion) = self.find_syllable_completion(&incomplete) {
                         let end = pos + len;
                         if !best_cost[end].is_infinite() {
                             // Incomplete match gets higher penalty than fuzzy but lower than unknown
-                            let seg_cost = self.calculate_segment_cost(&completion, len, false) + 2.0;
+                            let seg_cost =
+                                self.calculate_segment_cost(&completion, len, false) + 2.0;
                             let cand_cost = seg_cost + best_cost[end];
                             let cand_parsed = len + best_parsed[end];
                             let cand_keys = 1 + best_num_keys[end];
-                            // Incomplete penalty is less severe than unknown but more than fuzzy
-                            let incomplete_penalty = 500;
+                            // Incomplete penalty from config (default: 500)
+                            let incomplete_penalty = config.incomplete_penalty;
                             let cand_dist = incomplete_penalty + best_distance[end];
 
                             if should_replace(
@@ -502,11 +546,11 @@ impl Parser {
                 let end = pos + 1;
                 if !best_cost[end].is_infinite() {
                     let substr: String = normalized[pos..end].iter().collect();
-                    let seg_cost = 10.0_f32; // large penalty for unknown pieces
+                    let seg_cost = config.unknown_cost; // penalty from config (default: 10.0)
                     let cand_cost = seg_cost + best_cost[end];
                     let cand_parsed = 1 + best_parsed[end];
                     let cand_keys = 1 + best_num_keys[end];
-                    let cand_dist = 1000 + best_distance[end]; // very high distance for unknowns
+                    let cand_dist = config.unknown_penalty + best_distance[end]; // penalty from config (default: 1000)
 
                     if should_replace(
                         pos,
@@ -561,26 +605,26 @@ impl Parser {
     /// This implements a more sophisticated cost model similar to upstream libpinyin.
     fn calculate_segment_cost(&self, segment: &str, length: usize, is_fuzzy: bool) -> f32 {
         let base_cost = 1.0_f32;
-        
+
         // Length bonus: longer segments are generally preferred in pinyin
         let length_bonus = match length {
-            1 => 0.3,      // Single char segments get penalty
-            2 => 0.0,      // Standard two-character segments are neutral  
-            3 => -0.2,     // Three-character segments get small bonus
-            4 => -0.3,     // Four+ character segments get larger bonus
+            1 => 0.3,  // Single char segments get penalty
+            2 => 0.0,  // Standard two-character segments are neutral
+            3 => -0.2, // Three-character segments get small bonus
+            4 => -0.3, // Four+ character segments get larger bonus
             _ => -0.4,
         };
-        
+
         // Content-based adjustments for common vs rare syllables
         let content_adjustment = match segment.len() {
-            0..=2 => 0.1,   // Very short segments slightly penalized
-            3..=5 => 0.0,   // Normal length segments
-            _ => 0.05,      // Long segments slightly penalized for complexity
+            0..=2 => 0.1, // Very short segments slightly penalized
+            3..=5 => 0.0, // Normal length segments
+            _ => 0.05,    // Long segments slightly penalized for complexity
         };
-        
+
         // Fuzzy penalty based on type of fuzzy match
         let fuzzy_penalty = if is_fuzzy { 0.8 } else { 0.0 };
-        
+
         base_cost + length_bonus + content_adjustment + fuzzy_penalty
     }
 
@@ -590,7 +634,8 @@ impl Parser {
     /// Returns the first completion found, or None if no completions exist.
     pub fn find_syllable_completion(&self, prefix: &str) -> Option<String> {
         // Walk the trie to find any syllable starting with this prefix
-        self.trie.walk_prefixes(&prefix.chars().collect::<Vec<_>>(), 0)
+        self.trie
+            .walk_prefixes(&prefix.chars().collect::<Vec<_>>(), 0)
             .iter()
             .find_map(|(_, matched)| {
                 if matched.starts_with(prefix) && matched.len() > prefix.len() {
@@ -606,7 +651,7 @@ impl Parser {
     /// Returns corrected alternatives if applicable.
     pub fn apply_corrections(&self, s: &str) -> Vec<String> {
         let mut results = Vec::new();
-        
+
         // Correction 1: ue ↔ ve (e.g., "nue" ↔ "nve", "lue" ↔ "lve")
         if s.contains("ue") {
             results.push(s.replace("ue", "ve"));
@@ -614,13 +659,13 @@ impl Parser {
         if s.contains("ve") {
             results.push(s.replace("ve", "ue"));
         }
-        
+
         // Correction 2: v ↔ u in certain contexts (e.g., "nv" ↔ "nu", "lv" ↔ "lu")
         // This is context-sensitive: only after n, l
         for &initial in &["n", "l"] {
             let vu_pattern = format!("{}u", initial);
             let vv_pattern = format!("{}v", initial);
-            
+
             if s.contains(&vu_pattern) {
                 results.push(s.replace(&vu_pattern, &vv_pattern));
             }
@@ -628,7 +673,7 @@ impl Parser {
                 results.push(s.replace(&vv_pattern, &vu_pattern));
             }
         }
-        
+
         // Correction 3: uen ↔ un (e.g., "juen" ↔ "jun", "chuen" ↔ "chun")
         // PINYIN_CORRECT_UEN_UN
         if s.contains("uen") {
@@ -637,7 +682,7 @@ impl Parser {
         if s.contains("un") {
             results.push(s.replace("un", "uen"));
         }
-        
+
         // Correction 4: gn ↔ ng (e.g., "bagn" ↔ "bang", "hegn" ↔ "heng")
         // PINYIN_CORRECT_GN_NG
         if s.contains("gn") {
@@ -646,14 +691,14 @@ impl Parser {
         if s.contains("ng") {
             results.push(s.replace("ng", "gn"));
         }
-        
+
         // Correction 5: mg ↔ ng (e.g., "bamg" ↔ "bang", "hemg" ↔ "heng")
         // PINYIN_CORRECT_MG_NG
         if s.contains("mg") {
             results.push(s.replace("mg", "ng"));
         }
         // Note: ng → mg already covered above in bidirectional ng corrections
-        
+
         // Correction 6: iou ↔ iu (e.g., "liou" ↔ "liu", "jiou" ↔ "jiu")
         // PINYIN_CORRECT_IOU_IU
         if s.contains("iou") {
@@ -662,7 +707,7 @@ impl Parser {
         if s.contains("iu") {
             results.push(s.replace("iu", "iou"));
         }
-        
+
         results
     }
 
@@ -678,8 +723,30 @@ impl Parser {
     /// producing up to `k` distinct segmentation hypotheses.
     ///
     /// For double pinyin support, use `segment_top_k_with_scheme` instead.
+    /// For custom penalty configuration, use `segment_top_k_with_config`.
     pub fn segment_top_k(&self, input: &str, k: usize, allow_fuzzy: bool) -> Vec<Vec<Syllable>> {
-        self.segment_top_k_with_scheme(input, k, allow_fuzzy, None)
+        let config = libchinese_core::Config::default();
+        self.segment_top_k_with_config(input, k, allow_fuzzy, None, &config)
+    }
+
+    /// Perform top-K segmentation with custom config for penalty tuning.
+    pub fn segment_top_k_with_config(
+        &self,
+        input: &str,
+        k: usize,
+        allow_fuzzy: bool,
+        scheme_name: Option<&str>,
+        config: &libchinese_core::Config,
+    ) -> Vec<Vec<Syllable>> {
+        // If double pinyin scheme specified, try to convert
+        let processed_input = if let Some(scheme) = scheme_name {
+            self.convert_double_pinyin(input, scheme)
+                .unwrap_or_else(|| input.to_string())
+        } else {
+            input.to_string()
+        };
+
+        self.segment_top_k_internal(&processed_input, k, allow_fuzzy, config)
     }
 
     /// Perform beam search segmentation with optional double pinyin scheme conversion.
@@ -698,19 +765,18 @@ impl Parser {
         allow_fuzzy: bool,
         scheme_name: Option<&str>,
     ) -> Vec<Vec<Syllable>> {
-        // If double pinyin scheme specified, try to convert
-        let processed_input = if let Some(scheme) = scheme_name {
-            self.convert_double_pinyin(input, scheme)
-                .unwrap_or_else(|| input.to_string())
-        } else {
-            input.to_string()
-        };
-
-        self.segment_top_k_internal(&processed_input, k, allow_fuzzy)
+        let config = libchinese_core::Config::default();
+        self.segment_top_k_with_config(input, k, allow_fuzzy, scheme_name, &config)
     }
 
     /// Internal beam search method that does the actual work.
-    fn segment_top_k_internal(&self, input: &str, k: usize, allow_fuzzy: bool) -> Vec<Vec<Syllable>> {
+    fn segment_top_k_internal(
+        &self,
+        input: &str,
+        k: usize,
+        allow_fuzzy: bool,
+        config: &libchinese_core::Config,
+    ) -> Vec<Vec<Syllable>> {
         // Normalize input: lowercase and remove whitespace (same as segment_best)
         let normalized: Vec<char> = input
             .to_ascii_lowercase()
@@ -809,22 +875,21 @@ impl Parser {
                         let alts = self.fuzzy.alternatives(&substr);
                         for (alt, penalty) in alts.into_iter() {
                             // If the alt is an exact syllable in the trie, use it as a fuzzy match
-                            if self.trie.contains_word(&alt) {
-                                // only accept substitutions that match the same length in chars
-                                if alt.chars().count() == substr.chars().count() {
-                                    let end = st.pos + len;
-                                    let mut new_tokens = st.tokens.clone();
-                                    new_tokens.push(Syllable::new(alt.clone(), true));
-                                    let new_state = State {
-                                        pos: end,
-                                        tokens: new_tokens,
-                                        cost: st.cost + penalty, // Use per-rule penalty
-                                        parsed: st.parsed + (end - st.pos),
-                                        keys: st.keys + 1,
-                                        dist: st.dist + (penalty * 100.0) as i32, // Scale for distance
-                                    };
-                                    next_beam.push(new_state);
-                                }
+                            if self.trie.contains_word(&alt) && alt != substr {
+                                // Accept fuzzy alternatives even if they differ in length
+                                // (e.g., lan -> nan via l=n rule if both are valid syllables)
+                                let end = st.pos + len;
+                                let mut new_tokens = st.tokens.clone();
+                                new_tokens.push(Syllable::new(alt.clone(), true));
+                                let new_state = State {
+                                    pos: end,
+                                    tokens: new_tokens,
+                                    cost: st.cost + penalty, // Use per-rule penalty
+                                    parsed: st.parsed + (end - st.pos),
+                                    keys: st.keys + 1,
+                                    dist: st.dist + (penalty * 100.0) as i32, // Scale for distance
+                                };
+                                next_beam.push(new_state);
                             }
                         }
                     }
@@ -853,7 +918,7 @@ impl Parser {
             }
 
             // prune next_beam to beam_width using our comparator
-            next_beam.sort_by(|a, b| state_cmp(a, b));
+            next_beam.sort_by(state_cmp);
             if next_beam.len() > beam_width {
                 next_beam.truncate(beam_width);
             }
@@ -863,11 +928,11 @@ impl Parser {
 
         // If no completed segmentation was found, fall back to best single segmentation
         if completed.is_empty() {
-            return vec![self.segment_best_internal(input, allow_fuzzy)];
+            return vec![self.segment_best_internal(input, allow_fuzzy, config)];
         }
 
         // Sort completed states and return top-k token sequences
-        completed.sort_by(|a, b| state_cmp(a, b));
+        completed.sort_by(state_cmp);
         let mut out: Vec<Vec<Syllable>> = Vec::new();
         for st in completed.into_iter().take(k) {
             out.push(st.tokens);
@@ -954,7 +1019,7 @@ impl libchinese_core::SyllableType for Syllable {
     fn text(&self) -> &str {
         &self.text
     }
-    
+
     fn is_fuzzy(&self) -> bool {
         self.fuzzy
     }
@@ -963,7 +1028,7 @@ impl libchinese_core::SyllableType for Syllable {
 // Implement core::SyllableParser for Parser
 impl libchinese_core::SyllableParser for Parser {
     type Syllable = Syllable;
-    
+
     fn segment_top_k(&self, input: &str, k: usize, allow_fuzzy: bool) -> Vec<Vec<Self::Syllable>> {
         self.segment_top_k(input, k, allow_fuzzy)
     }

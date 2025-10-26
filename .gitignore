@@ -2,3 +2,4 @@
 *.fst
 *.redb
 tools/serialize_ngram/target/
+Cargo.lock

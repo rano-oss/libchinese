@@ -26,7 +26,7 @@ Notes
   richer (tone-insensitive mapping, alternate finals, etc).
 */
 
-use libchinese_core::{TrieNode, FuzzyMap};
+use libchinese_core::{FuzzyMap, TrieNode};
 
 /// A matched zhuyin syllable with metadata.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,7 +47,7 @@ impl ZhuyinSyllable {
 }
 
 /// Zhuyin fuzzy matching now uses the shared `libchinese_core::FuzzyMap`.
-/// 
+///
 /// The parser is initialized with fuzzy rules from `crate::standard_fuzzy_rules()`
 /// which includes:
 ///  - HSU keyboard layout corrections (ㄓ/ㄐ, ㄔ/ㄑ, ㄕ/ㄒ, etc.)
@@ -66,50 +66,28 @@ pub struct ZhuyinParser {
 }
 
 impl ZhuyinParser {
-    /// Create a parser with standard zhuyin fuzzy rules.
-    pub fn new() -> Self {
-        let rules = crate::standard_fuzzy_rules();
-        Self {
-            trie: TrieNode::new(),
-            fuzzy: FuzzyMap::from_rules(&rules),
-        }
-    }
-    
-    /// Create a parser with custom fuzzy rules.
-    pub fn with_fuzzy_rules(fuzzy_rules: Vec<String>) -> Self {
-        Self {
-            trie: TrieNode::new(),
-            fuzzy: FuzzyMap::from_rules(&fuzzy_rules),
-        }
-    }
-
-    /// Create a parser seeded with a list of valid zhuyin syllables.
-    /// Syllables are inserted verbatim (unicode-aware).
-    pub fn with_syllables<T: AsRef<str>>(syllables: &[T]) -> Self {
-        let mut p = ZhuyinParser::new();
+    /// Create a parser seeded with a list of valid zhuyin syllables and fuzzy rules.
+    pub fn new<T: AsRef<str>>(fuzzy_rules: Vec<String>, syllables: &[T]) -> Self {
+        let mut trie = TrieNode::new();
         for s in syllables {
-            p.insert_syllable(s.as_ref());
+            trie.insert(s.as_ref());
         }
-        p
-    }
-
-    /// Insert a single syllable into the internal trie.
-    pub fn insert_syllable(&mut self, syllable: &str) {
-        if !syllable.trim().is_empty() {
-            self.trie.insert(syllable.trim());
+        Self {
+            trie,
+            fuzzy: FuzzyMap::from_rules(&fuzzy_rules),
         }
     }
 
     /// Apply zhuyin corrections to a string.
     /// Returns corrected alternatives (similar to pinyin corrections).
-    /// 
+    ///
     /// Corrections (from libpinyin's ZHUYIN_* flags):
     /// - SHUFFLE: medial/final order corrections (e.g., ㄨㄟ ↔ ㄩㄟ)
     /// - HSU: HSU keyboard layout corrections (ㄓ/ㄐ, ㄔ/ㄑ, ㄕ/ㄒ)
     /// - ETEN26: ETEN26 keyboard layout corrections (ㄓ/ㄗ, ㄔ/ㄘ, ㄕ/ㄙ)
     pub fn apply_corrections(&self, s: &str) -> Vec<String> {
         let mut results = Vec::new();
-        
+
         // ZHUYIN_CORRECT_SHUFFLE: medial/final order corrections
         // ㄨㄟ <-> ㄩㄟ (u-final vs ü-final confusion)
         if s.contains("ㄨㄟ") {
@@ -118,46 +96,51 @@ impl ZhuyinParser {
         if s.contains("ㄩㄟ") {
             results.push(s.replace("ㄩㄟ", "ㄨㄟ"));
         }
-        
-        // ㄨㄣ <-> ㄩㄣ correction  
+
+        // ㄨㄣ <-> ㄩㄣ correction
         if s.contains("ㄨㄣ") {
             results.push(s.replace("ㄨㄣ", "ㄩㄣ"));
         }
         if s.contains("ㄩㄣ") {
             results.push(s.replace("ㄩㄣ", "ㄨㄣ"));
         }
-        
+
         // ZHUYIN_CORRECT_HSU: HSU keyboard layout corrections
         // ㄓ/ㄐ, ㄔ/ㄑ, ㄕ/ㄒ confusion (HSU maps these to same keys)
         let hsu_pairs = vec![
-            ("ㄓ", "ㄐ"), ("ㄐ", "ㄓ"),
-            ("ㄔ", "ㄑ"), ("ㄑ", "ㄔ"),
-            ("ㄕ", "ㄒ"), ("ㄒ", "ㄕ"),
+            ("ㄓ", "ㄐ"),
+            ("ㄐ", "ㄓ"),
+            ("ㄔ", "ㄑ"),
+            ("ㄑ", "ㄔ"),
+            ("ㄕ", "ㄒ"),
+            ("ㄒ", "ㄕ"),
         ];
-        
+
         for (from, to) in hsu_pairs {
             if s.contains(from) {
                 results.push(s.replace(from, to));
             }
         }
-        
+
         // ZHUYIN_CORRECT_ETEN26: ETEN26 keyboard layout corrections
         // ㄓ/ㄗ, ㄔ/ㄘ, ㄕ/ㄙ confusion (ETEN26-specific errors)
         let eten_pairs = vec![
-            ("ㄓ", "ㄗ"), ("ㄗ", "ㄓ"),
-            ("ㄔ", "ㄘ"), ("ㄘ", "ㄔ"),
-            ("ㄕ", "ㄙ"), ("ㄙ", "ㄕ"),
+            ("ㄓ", "ㄗ"),
+            ("ㄗ", "ㄓ"),
+            ("ㄔ", "ㄘ"),
+            ("ㄘ", "ㄔ"),
+            ("ㄕ", "ㄙ"),
+            ("ㄙ", "ㄕ"),
         ];
-        
+
         for (from, to) in eten_pairs {
             if s.contains(from) {
                 results.push(s.replace(from, to));
             }
         }
-        
+
         results
     }
-
 
     /// Best segmentation using dynamic programming.
     /// `allow_fuzzy` permits fuzzy-alternative matching with a penalty.
@@ -168,7 +151,28 @@ impl ZhuyinParser {
     /// - unknown char fallback: cost 10.0
     ///
     /// The DP minimizes total cost (prefer longer / fewer segments).
+    /// For custom penalty configuration, use `segment_best_with_config`.
     pub fn segment_best(&self, input: &str, allow_fuzzy: bool) -> Vec<ZhuyinSyllable> {
+        let config = libchinese_core::Config::default();
+        self.segment_best_internal(input, allow_fuzzy, &config)
+    }
+
+    /// Perform segmentation with custom config for penalty tuning.
+    pub fn segment_best_with_config(
+        &self,
+        input: &str,
+        allow_fuzzy: bool,
+        config: &libchinese_core::Config,
+    ) -> Vec<ZhuyinSyllable> {
+        self.segment_best_internal(input, allow_fuzzy, config)
+    }
+
+    fn segment_best_internal(
+        &self,
+        input: &str,
+        allow_fuzzy: bool,
+        config: &libchinese_core::Config,
+    ) -> Vec<ZhuyinSyllable> {
         // Normalize: remove whitespace, operate on char vector
         let chars: Vec<char> = input.chars().filter(|c| !c.is_whitespace()).collect();
         let n = chars.len();
@@ -177,7 +181,7 @@ impl ZhuyinParser {
         }
 
         // dp_cost[i] = best cost for suffix starting at i
-        let mut dp_cost: Vec<f32> = vec![std::f32::INFINITY; n + 1];
+        let mut dp_cost: Vec<f32> = vec![f32::INFINITY; n + 1];
         // dp_choice[i] = Option<(next_pos, matched_string, fuzzy_flag)>
         let mut dp_choice: Vec<Option<(usize, String, bool)>> = vec![None; n + 1];
 
@@ -204,14 +208,14 @@ impl ZhuyinParser {
                         break;
                     }
                     let substr: String = chars[pos..pos + len].iter().collect();
-                    
+
                     // Try zhuyin corrections first (shuffle, HSU, ETEN26) - lower penalty than fuzzy
                     let corrections = self.apply_corrections(&substr);
                     for corrected in corrections {
                         if self.trie.contains_word(&corrected) && corrected != substr {
                             let end = pos + len;
                             if end <= n && !dp_cost[end].is_infinite() {
-                                let seg_cost = 200.0; // Correction penalty
+                                let seg_cost = config.correction_penalty as f32; // Correction penalty from config (default: 200)
                                 let cand = seg_cost + dp_cost[end];
                                 if cand < dp_cost[pos] {
                                     dp_cost[pos] = cand;
@@ -220,7 +224,7 @@ impl ZhuyinParser {
                             }
                         }
                     }
-                    
+
                     // Then try fuzzy alternatives
                     let alts = self.fuzzy.alternatives(&substr);
                     for (alt, penalty) in alts.into_iter() {
@@ -228,7 +232,7 @@ impl ZhuyinParser {
                             // require same char-length match for this placeholder approach
                             if alt.chars().count() == substr.chars().count() {
                                 let end = pos + len;
-                                let seg_cost = penalty; // use fuzzy penalty from rule
+                                let seg_cost = penalty * (config.fuzzy_penalty_multiplier as f32); // use fuzzy penalty from config
                                 let cand = seg_cost + dp_cost[end];
                                 if cand < dp_cost[pos] {
                                     dp_cost[pos] = cand;
@@ -244,7 +248,7 @@ impl ZhuyinParser {
             if dp_choice[pos].is_none() {
                 let end = pos + 1;
                 let substr: String = chars[pos..end].iter().collect();
-                let seg_cost = 10.0;
+                let seg_cost = config.unknown_cost; // penalty from config (default: 10.0)
                 let cand = seg_cost + dp_cost[end];
                 if cand < dp_cost[pos] {
                     dp_cost[pos] = cand;
@@ -272,6 +276,7 @@ impl ZhuyinParser {
 
     /// Return top-K segmentations. Placeholder: returns best segmentation only.
     /// A full implementation should enumerate alternatives (beam search / k-best DP).
+    /// For custom penalty configuration, use `segment_top_k_with_config`.
     pub fn segment_top_k(
         &self,
         input: &str,
@@ -280,45 +285,44 @@ impl ZhuyinParser {
     ) -> Vec<Vec<ZhuyinSyllable>> {
         vec![self.segment_best(input, allow_fuzzy)]
     }
+
+    /// Return top-K segmentations with custom config for penalty tuning.
+    pub fn segment_top_k_with_config(
+        &self,
+        input: &str,
+        _k: usize,
+        allow_fuzzy: bool,
+        config: &libchinese_core::Config,
+    ) -> Vec<Vec<ZhuyinSyllable>> {
+        vec![self.segment_best_with_config(input, allow_fuzzy, config)]
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn trie_basic_insert_and_contains() {
-        let mut trie = TrieNode::new();
-        trie.insert("ㄓ");
-        trie.insert("ㄗ");
-        assert!(trie.contains_word("ㄓ"));
-        assert!(trie.contains_word("ㄗ"));
-        assert!(!trie.contains_word("ㄔ"));
-    }
-
     #[test]
     fn fuzzy_basic_alternatives() {
         // Test the standard fuzzy rules
         let rules = crate::standard_fuzzy_rules();
         let fm = FuzzyMap::from_rules(&rules);
-        
+
         // The alternatives() returns Vec<(String, f32)> now
         let alts = fm.alternatives("ㄓ");
         let alt_strings: Vec<String> = alts.iter().map(|(s, _)| s.clone()).collect();
-        
-        assert!(alt_strings.contains(&"ㄓ".to_string()), "Should contain original");
+
+        assert!(
+            alt_strings.contains(&"ㄓ".to_string()),
+            "Should contain original"
+        );
         // Note: Actual alternatives depend on configured rules in standard_fuzzy_rules()
         // If ㄓ=ㄐ is configured, ㄐ should be in alternatives
     }
 
     #[test]
     fn parser_segment_simple() {
-        let mut p = ZhuyinParser::new();
-        // seed a few syllables (using bopomofo characters or ASCII placeholders)
-        p.insert_syllable("ㄋㄧ");
-        p.insert_syllable("ㄏㄠ");
-        p.insert_syllable("ㄓㄨㄥ");
-        p.insert_syllable("ㄍㄨㄛ");
+        let rules = crate::standard_fuzzy_rules();
+        let mut p = ZhuyinParser::new(rules, &["ㄋㄧ", "ㄏㄠ", "ㄓㄨㄥ", "ㄍㄨㄛ"]);
 
         let seg = p.segment_best("ㄋㄧㄏㄠ", false);
         let texts: Vec<String> = seg.into_iter().map(|s| s.text).collect();
@@ -331,8 +335,8 @@ mod tests {
 
     #[test]
     fn parser_unknown_fallback() {
-        let mut p = ZhuyinParser::new();
-        p.insert_syllable("ㄋㄧ");
+        let rules = crate::standard_fuzzy_rules();
+        let mut p = ZhuyinParser::new(rules, &["ㄋㄧ", "ㄏㄠ", "ㄓㄨㄥ", "ㄍㄨㄛ"]);
         let seg = p.segment_best("ㄋㄧX", false);
         let texts: Vec<String> = seg.into_iter().map(|s| s.text).collect();
         assert_eq!(texts, vec!["ㄋㄧ".to_string(), "X".to_string()]);
@@ -344,7 +348,7 @@ impl libchinese_core::SyllableType for ZhuyinSyllable {
     fn text(&self) -> &str {
         &self.text
     }
-    
+
     fn is_fuzzy(&self) -> bool {
         self.fuzzy
     }
@@ -353,7 +357,7 @@ impl libchinese_core::SyllableType for ZhuyinSyllable {
 // Implement core::SyllableParser for ZhuyinParser
 impl libchinese_core::SyllableParser for ZhuyinParser {
     type Syllable = ZhuyinSyllable;
-    
+
     fn segment_top_k(&self, input: &str, k: usize, allow_fuzzy: bool) -> Vec<Vec<Self::Syllable>> {
         self.segment_top_k(input, k, allow_fuzzy)
     }
