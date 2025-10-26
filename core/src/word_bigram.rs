@@ -74,7 +74,7 @@ impl WordBigram {
 
         self.data
             .entry(word1.clone())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(entry);
 
         *self.totals.entry(word1).or_insert(0) += count;

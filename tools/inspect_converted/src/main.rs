@@ -39,7 +39,7 @@ fn inspect_dataset(dataset_path: &str, search_key: Option<&str>) {
                 let mut count = 0;
                 while let Some((k, v)) = stream.next() {
                     let k_str = String::from_utf8_lossy(k);
-                    if k_str.contains(key) || key.contains(&k_str.as_ref()) {
+                    if k_str.contains(key) || key.contains(k_str.as_ref()) {
                         println!("    {} -> {}", k_str, v);
                         count += 1;
                         if count >= 10 {

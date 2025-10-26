@@ -151,7 +151,7 @@ fn extract_from_interpolation(
             if let Some((phrase1, phrase2, count)) = parse_bigram_line(trimmed) {
                 bigram_counts
                     .entry(phrase1)
-                    .or_insert_with(HashMap::new)
+                    .or_default()
                     .entry(phrase2)
                     .and_modify(|c| *c += count)
                     .or_insert(count);
