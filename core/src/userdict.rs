@@ -290,36 +290,6 @@ impl UserDict {
         Ok(out)
     }
 
-    /// Get all user bigrams as a snapshot.
-    ///
-    /// Returns HashMap of ((w1, w2) → count). Useful for debugging and testing.
-    pub fn snapshot_bigrams(&self) -> HashMap<(String, String), u64> {
-        self.snapshot_bigrams_result().unwrap_or_default()
-    }
-
-    fn snapshot_bigrams_result(&self) -> Result<HashMap<(String, String), u64>, redb::Error> {
-        let mut out = HashMap::new();
-        let r = self.db.begin_read()?;
-        match r.open_table(Self::bigram_table_def()) {
-            Ok(table) => {
-                for item in table.iter()? {
-                    let (key, count) = item?;
-                    if let Some((w1, w2)) = Self::decode_bigram_key(key.value()) {
-                        out.insert((w1, w2), count.value());
-                    }
-                }
-            }
-            Err(e) => {
-                if matches!(e, redb::TableError::TableDoesNotExist(_)) {
-                    // Empty
-                } else {
-                    return Err(e.into());
-                }
-            }
-        }
-        Ok(out)
-    }
-
     // ========== User Phrase Management API for GUI ==========
 
     /// List all phrases in user dictionary (alias for iter_all for clarity).

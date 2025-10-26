@@ -43,7 +43,8 @@ pub struct Engine<P> {
 impl<P: SyllableParser> Engine<P> {
     /// Create a new engine with the given model and parser.
     pub fn new(model: Model, parser: P) -> Self {
-        let cache_capacity = model.config.borrow().max_cache_size;
+        // Default cache capacity
+        let cache_capacity = 1000;
 
         Self {
             model,
@@ -79,15 +80,15 @@ impl<P: SyllableParser> Engine<P> {
         *self.cache_misses.borrow_mut() += 1;
 
         // Get top segmentations from parser (parser already applied fuzzy matching)
-        // Use an adaptive k computed from Config and input length to balance
+        // Use an adaptive k computed from input length to balance
         // recall vs CPU work. Parser internally uses dynamic beam width scaling
         // (see parser.rs:840-842) so k has a non-linear effect on parser cost.
         let input_len = input.len();
-        let cfg = self.model.config.borrow();
-        let short_k = cfg.segment_k_short;
-        let long_k = cfg.segment_k_long;
-        let max_k = cfg.segment_k_max;
-        drop(cfg);
+        
+        // Hardcoded segmentation limits (previously in Config)
+        let short_k: usize = 4;
+        let long_k: usize = 8;
+        let max_k: usize = 12;
 
         // Heuristic: keep small inputs low, increase gradually for longer inputs,
         // but clamp to a max. This mirrors upstream piecewise/proportional rules.
@@ -131,11 +132,8 @@ impl<P: SyllableParser> Engine<P> {
         }
         drop(config);
 
-        // Apply advanced ranking options from config
-        vec = self.apply_advanced_ranking(vec, input);
-
-        // Final sort by score (primary key) and phrase length (secondary, if enabled)
-        self.sort_candidates(&mut vec);
+        // Sort by score (higher is better)
+        vec.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
 
         if vec.len() > self.limit {
             vec.truncate(self.limit);
@@ -145,60 +143,6 @@ impl<P: SyllableParser> Engine<P> {
         self.cache.borrow_mut().put(input.to_string(), vec.clone());
 
         vec
-    }
-
-    /// Apply advanced ranking options based on Config settings.
-    ///
-    /// Implements upstream libpinyin sort_option_t behavior:
-    /// - SORT_BY_PHRASE_LENGTH: Prefer shorter phrases (adjusts score)
-    /// - SORT_BY_PINYIN_LENGTH: Prefer shorter pinyin (adjusts score)
-    /// - SORT_WITHOUT_LONGER_CANDIDATE: Filter out phrases longer than input
-    fn apply_advanced_ranking(
-        &self,
-        mut candidates: Vec<Candidate>,
-        input: &str,
-    ) -> Vec<Candidate> {
-        let cfg = self.model.config.borrow();
-
-        // Filter: Remove candidates longer than input
-        if cfg.sort_without_longer_candidate {
-            let input_char_count = input.chars().count();
-            candidates.retain(|c| {
-                let phrase_char_count = c.text.chars().count();
-                phrase_char_count <= input_char_count
-            });
-        }
-
-        // Adjust scores based on phrase length preference
-        if cfg.sort_by_phrase_length {
-            drop(cfg); // Release borrow before mutable iteration
-            for cand in candidates.iter_mut() {
-                let phrase_len = cand.text.chars().count();
-                // Penalize each extra character beyond 1
-                let length_penalty = (phrase_len.saturating_sub(1)) as f32 * 0.5;
-                cand.score -= length_penalty;
-            }
-        }
-
-        candidates
-    }
-
-    /// Sort candidates by score (primary) and optionally by phrase length (secondary).
-    fn sort_candidates(&self, candidates: &mut [Candidate]) {
-        let sort_by_length = self.model.config.borrow().sort_by_phrase_length;
-
-        candidates.sort_by(|a, b| {
-            // Primary: score (higher is better)
-            match b.score.partial_cmp(&a.score) {
-                Some(std::cmp::Ordering::Equal) if sort_by_length => {
-                    // Secondary: phrase length (shorter is better)
-                    let a_len = a.text.chars().count();
-                    let b_len = b.text.chars().count();
-                    a_len.cmp(&b_len)
-                }
-                ordering => ordering.unwrap_or(std::cmp::Ordering::Equal),
-            }
-        });
     }
 
     /// Commit a phrase to user learning.

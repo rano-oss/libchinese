@@ -68,34 +68,11 @@ pub struct Config {
     /// Language crates should populate this with appropriate defaults
     pub fuzzy: Vec<String>,
 
-    /// Interpolation weights for n-gram probabilities
-    pub unigram_weight: f32,
-    pub bigram_weight: f32,
-    pub trigram_weight: f32,
-
-    // Advanced Ranking Options (similar to upstream libpinyin sort_option_t)
-    /// Sort candidates by phrase length (prefer shorter phrases)
-    pub sort_by_phrase_length: bool,
-    /// Filter out candidates longer than input
-    pub sort_without_longer_candidate: bool,
-
-    // Prediction Settings (for predict_next feature)
-    /// Maximum phrase length for predictions (1-5 characters)
-    pub max_prediction_length: usize,
-    /// Minimum log probability threshold for predictions (-20.0 to 0.0)
-    pub min_prediction_frequency: f64,
-    /// Prefer 2-character phrases in prediction ranking
-    pub prefer_phrase_predictions: bool,
-
     // Suggestion Mode Settings
     /// Automatically enter suggestion mode after committing text
     pub auto_suggestion: bool,
     /// Minimum committed text length to trigger auto-suggestion (chars)
     pub min_suggestion_trigger_length: usize,
-
-    // Cache Management
-    /// Maximum number of entries in the input -> candidates cache
-    pub max_cache_size: usize,
 
     // Full/Half Width Settings
     /// Enable full-width character conversion (ASCII to full-width)
@@ -130,22 +107,11 @@ pub struct Config {
     /// Boost (additive) applied to score for exact full-key matches.
     /// Larger values prefer exact dictionary entries over composed alternatives.
     pub full_key_boost: f32,
-    /// Multiplier applied to the log-frequency boost from lexicon payloads.
-    /// Higher values make common lexicon entries more preferred.
-    pub lexicon_freq_weight: f32,
     /// Lambda parameter for interpolation model (unigram/bigram mixing)
     /// Lambda is the weight for bigram probability: score = λ*P(w2|w1) + (1-λ)*P(w2)
     /// Upstream libpinyin default: 0.293 (trained via deleted interpolation)
     /// Range: [0.0, 1.0], where 0 = pure unigram, 1 = pure bigram
     pub lambda: f32,
-    /// Weight for word-level bigram log probabilities
-    /// Controls influence of P(word2|word1) in DP scoring
-    pub word_bigram_weight: f32,
-    /// Bonus (additive) per character in multi-character words.
-    /// Encourages longer words over single characters to avoid character-by-character composition.
-    /// Default: 10000.0 makes 2-char words much more attractive than single chars.
-    /// NOTE: Can be reduced once word_bigram_weight is properly tuned
-    pub multichar_word_bonus: f32,
     /// Sentence length penalty factor (upstream LONG_SENTENCE_PENALTY)
     /// Applied per word in the path to discourage over-segmentation
     /// Upstream value: ln(1.2) ≈ 0.1823
@@ -154,13 +120,6 @@ pub struct Config {
     /// Multiplier for frequency boost when adding user-learned phrases
     /// Upstream value: 7 for training, 3 for boosting existing entries
     pub unigram_factor: f32,
-    // Segmentation tuning: how many top segmentations to request from parser
-    /// Number of segmentations for short inputs (chars)
-    pub segment_k_short: usize,
-    /// Base number of segmentations for medium/long inputs
-    pub segment_k_long: usize,
-    /// Maximum cap for k to avoid unbounded parser work
-    pub segment_k_max: usize,
 }
 
 impl Default for Config {
@@ -168,21 +127,9 @@ impl Default for Config {
         Self {
             // Empty fuzzy rules by default - language crates will populate
             fuzzy: vec![],
-            unigram_weight: 0.6,
-            bigram_weight: 0.3,
-            trigram_weight: 0.1,
-            // Advanced ranking - disabled by default (score-only sorting)
-            sort_by_phrase_length: false,
-            sort_without_longer_candidate: false,
-            // Prediction settings - favor 2-char phrases, moderate filtering
-            max_prediction_length: 3,
-            min_prediction_frequency: -15.0,
-            prefer_phrase_predictions: true,
             // Suggestion mode - auto-enter after commits of 2+ chars
             auto_suggestion: true,
             min_suggestion_trigger_length: 2,
-            // Cache management - 1000 entries is reasonable for most IME use
-            max_cache_size: 1000,
             // Full/half width - disabled by default
             full_width_enabled: false,
             // Selection keys - default to numbers 1-9
@@ -195,24 +142,11 @@ impl Default for Config {
             incomplete_penalty: 500,
             unknown_penalty: 1000,
             unknown_cost: 10.0,
-            // Segmentation tuning defaults
-            segment_k_short: 4,
-            segment_k_long: 8,
-            segment_k_max: 12,
             // Exact-match boost: prefer full-key dictionary entries slightly
             full_key_boost: 2.0,
-            // Lexicon frequency weight (multiplies sqrt(freq))
-            // Using sqrt provides better discrimination than ln for large frequency ranges
-            lexicon_freq_weight: 30.0, // Increased from 20.0 to favor lexicon words more
             // Lambda for interpolation: upstream default 0.293 (trained)
             // We'll start with a similar value
             lambda: 0.3,
-            // Word bigram weight: multiply log P(word2|word1) by this
-            // Increased to give word context more influence
-            word_bigram_weight: 20.0,
-            // Multi-character word bonus: favor longer words
-            // Increased to strongly favor proper nouns and multi-character words over single chars
-            multichar_word_bonus: 500.0, // Increased from 100.0
             // Upstream LONG_SENTENCE_PENALTY = log(1.2) ≈ 0.1823
             sentence_length_penalty: 1.2_f32.ln(),
             // Upstream unigram_factor for user learning boost
