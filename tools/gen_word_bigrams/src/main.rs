@@ -7,13 +7,13 @@
 //
 // Examples:
 //   # Simplified Chinese (pinyin)
-//   cargo run --bin gen_word_bigrams data/interpolation2.text data/converted/simplified/lexicon.fst data/converted/simplified/lexicon.bincode data/converted/simplified/word_bigram.bin
+//   cargo run --bin gen_word_bigrams data/interpolation2.text data/converted/simplified/word_bigram.bin
 //
 //   # Traditional Chinese (pinyin)
-//   cargo run --bin gen_word_bigrams data/interpolation2.text data/converted/traditional/lexicon.fst data/converted/traditional/lexicon.bincode data/converted/traditional/word_bigram.bin
+//   cargo run --bin gen_word_bigrams data/zhuyin/interpolation2.text data/converted/traditional/word_bigram.bin
 //
 //   # Zhuyin/Bopomofo (traditional)
-//   cargo run --bin gen_word_bigrams data/zhuyin/interpolation2.text data/converted/zhuyin_traditional/lexicon.fst data/converted/zhuyin_traditional/lexicon.bincode data/converted/zhuyin_traditional/word_bigram.bin
+//   cargo run --bin gen_word_bigrams data/zhuyin/interpolation2.text data/converted/zhuyin_traditional/word_bigram.bin
 //
 // Strategy:
 // 1. Parse interpolation2.text \1-gram and \2-gram sections
@@ -22,7 +22,7 @@
 // 4. Convert counts to log probabilities
 // 5. Save as word_bigram.bin using bincode
 
-use libchinese_core::{Lexicon, WordBigram};
+use libchinese_core::WordBigram;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -37,18 +37,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         PathBuf::from("data/interpolation2.text")
     };
 
-    let fst_path = if args.len() > 2 {
-        PathBuf::from(&args[2])
-    } else {
-        PathBuf::from("data/converted/simplified/lexicon.fst")
-    };
-
-    let bincode_path = if args.len() > 3 {
-        PathBuf::from(&args[3])
-    } else {
-        PathBuf::from("data/converted/simplified/lexicon.bincode")
-    };
-
     let output_path = if args.len() > 4 {
         PathBuf::from(&args[4])
     } else {
@@ -56,19 +44,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     println!(
-        "Loading lexicon from {} and {}...",
-        fst_path.display(),
-        bincode_path.display()
-    );
-    let lexicon = Lexicon::load_from_fst_bincode(&fst_path, &bincode_path)
-        .map_err(|e| format!("Failed to load lexicon: {}", e))?;
-
-    println!(
         "Extracting unigrams and bigrams from {}...",
         interpolation_path.display()
     );
     let (unigram_counts, bigram_counts) =
-        extract_from_interpolation(&interpolation_path, &lexicon)?;
+        extract_from_interpolation(&interpolation_path)?;
 
     println!("Building word bigram model...");
     let word_bigram = build_word_bigram_model(&unigram_counts, &bigram_counts);
@@ -88,8 +68,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 /// Parse interpolation2.text and extract both unigrams and bigrams
 fn extract_from_interpolation(
-    path: &PathBuf,
-    _lexicon: &Lexicon,
+    path: &PathBuf
 ) -> Result<(HashMap<String, u32>, HashMap<String, HashMap<String, u32>>), Box<dyn std::error::Error>>
 {
     let file = File::open(path)?;

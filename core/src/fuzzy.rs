@@ -48,13 +48,6 @@ impl FuzzyMap {
     /// The rules are expected to be textual fuzzy pairs like `"zh=z"` or
     /// `"zh=z:1.5"` (with optional penalty).
     /// Pairs are inserted bidirectionally by default.
-    ///
-    /// # Examples
-    ///
-    /// ```ignore
-    /// let rules = vec!["zh=z:1.0", "an=ang:1.5"];
-    /// let fm = FuzzyMap::from_rules(&rules);
-    /// ```
     pub fn from_rules(rules: &[String]) -> Self {
         let mut fm = FuzzyMap {
             map: HashMap::new(),
@@ -189,13 +182,6 @@ impl FuzzyMap {
     /// producing a list of sequences with per-syllable alternatives and total penalties.
     ///
     /// Returns a vector of (sequence, total_penalty) tuples.
-    ///
-    /// Example:
-    ///   input ["zhong", "guo"] -> output like:
-    ///     [(["zhong","guo"], 0.0), (["zong","guo"], 1.0), ...]
-    ///
-    /// This returns up to `limit` expansions (breadth-first). `limit == 0`
-    /// means no limit.
     pub fn expand_sequence(&self, seq: &[String], limit: usize) -> Vec<(Vec<String>, f32)> {
         if seq.is_empty() {
             return vec![];
