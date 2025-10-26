@@ -70,15 +70,13 @@ impl WordBigram {
 
     /// Add a bigram observation
     pub fn add_bigram(&mut self, word1: String, word2: String, count: u32) {
-        let entry = BigramEntry {
-            word: word2,
-            count,
-        };
-        
-        self.data.entry(word1.clone())
+        let entry = BigramEntry { word: word2, count };
+
+        self.data
+            .entry(word1.clone())
             .or_insert_with(Vec::new)
             .push(entry);
-        
+
         *self.totals.entry(word1).or_insert(0) += count;
     }
 
@@ -156,15 +154,15 @@ mod tests {
         let mut wb = WordBigram::new();
         wb.add_bigram("今天".to_string(), "上海".to_string(), 10);
         wb.add_bigram("今天".to_string(), "很好".to_string(), 5);
-        
+
         // P("上海" | "今天") = 10 / 15 = 0.666...
         let prob = wb.get_probability("今天", "上海");
         assert!((prob - 0.666).abs() < 0.01);
-        
+
         // P("很好" | "今天") = 5 / 15 = 0.333...
         let prob = wb.get_probability("今天", "很好");
         assert!((prob - 0.333).abs() < 0.01);
-        
+
         // Missing bigram
         let prob = wb.get_probability("今天", "不存在");
         assert_eq!(prob, 0.0);
@@ -174,10 +172,10 @@ mod tests {
     fn test_word_bigram_log_probability() {
         let mut wb = WordBigram::new();
         wb.add_bigram("你好".to_string(), "世界".to_string(), 100);
-        
+
         let log_prob = wb.get_log_probability("你好", "世界");
         assert!(log_prob == 0.0); // ln(1.0) = 0 since 100/100 = 1.0
-        
+
         let log_prob = wb.get_log_probability("不存在", "也不存在");
         assert_eq!(log_prob, -20.0);
     }

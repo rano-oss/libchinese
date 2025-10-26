@@ -1475,7 +1475,12 @@ impl Engine {
             UserDict::new(&ud_path)?
         };
 
-        let model = Model::new(lex, WordBigram::new(), userdict, libchinese_core::Config::default());
+        let model = Model::new(
+            lex,
+            WordBigram::new(),
+            userdict,
+            libchinese_core::Config::default(),
+        );
 
         // Parser is created internally using ZHUYIN_SYLLABLES
         Ok(Self::new(model))
@@ -1509,12 +1514,12 @@ impl Engine {
     }
 
     /// Get a reference to the config
-    pub fn config(&self) -> std::cell::Ref<'_,libchinese_core::Config> {
+    pub fn config(&self) -> std::cell::Ref<'_, libchinese_core::Config> {
         self.inner.config()
     }
 
     /// Get a mutable reference to the config
-    pub fn config_mut(&self) -> std::cell::RefMut<'_,libchinese_core::Config> {
+    pub fn config_mut(&self) -> std::cell::RefMut<'_, libchinese_core::Config> {
         self.inner.config_mut()
     }
 
@@ -1574,7 +1579,12 @@ pub fn create_ime_engine_hsu<P: AsRef<std::path::Path>>(
     let userdict = UserDict::new(&ud_path)?;
 
     // Create model with default config
-    let model = Model::new(lex, WordBigram::new(), userdict, libchinese_core::Config::default());
+    let model = Model::new(
+        lex,
+        WordBigram::new(),
+        userdict,
+        libchinese_core::Config::default(),
+    );
 
     // Create parser with HSU fuzzy rules
     let fuzzy_rules = crate::fuzzy_presets::hsu_fuzzy_rules();
@@ -1623,7 +1633,12 @@ pub fn create_ime_engine_standard<P: AsRef<std::path::Path>>(
     }
     let userdict = UserDict::new(&ud_path)?;
 
-    let model = Model::new(lex, WordBigram::new(), userdict, libchinese_core::Config::default());
+    let model = Model::new(
+        lex,
+        WordBigram::new(),
+        userdict,
+        libchinese_core::Config::default(),
+    );
 
     // Create parser with Standard fuzzy rules
     let fuzzy_rules = crate::fuzzy_presets::standard_fuzzy_rules();
@@ -1670,7 +1685,12 @@ pub fn create_ime_engine_eten<P: AsRef<std::path::Path>>(
     }
     let userdict = UserDict::new(&ud_path)?;
 
-    let model = Model::new(lex, WordBigram::new(), userdict, libchinese_core::Config::default());
+    let model = Model::new(
+        lex,
+        WordBigram::new(),
+        userdict,
+        libchinese_core::Config::default(),
+    );
 
     // Create parser with ETEN fuzzy rules
     let fuzzy_rules = crate::fuzzy_presets::eten_fuzzy_rules();

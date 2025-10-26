@@ -13,10 +13,6 @@ path = "src/lib.rs"
 name = "interactive"
 path = "examples/interactive.rs"
 
-[[example]]
-name = "cloud_demo"
-path = "examples/cloud_demo.rs"
-
 [dependencies]
 libchinese-core = { path = "../core" }
 phf = { version = "0.11", features = ["macros"] }

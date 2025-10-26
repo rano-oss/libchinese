@@ -227,39 +227,43 @@ impl<P: SyllableParser> Engine<P> {
         let mut results: Vec<Candidate> = Vec::new();
 
         // First: try the FULL segmentation as a single lexicon key (supports long dictionary entries)
-        let full_key = seg.iter().map(|s| s.text()).collect::<Vec<&str>>().join("'");
+        let full_key = seg
+            .iter()
+            .map(|s| s.text())
+            .collect::<Vec<&str>>()
+            .join("'");
         let full_entries = self.model.lexicon.lookup_with_freq(&full_key);
         if !full_entries.is_empty() {
             // Score full-key matches using the same word-level unigram/bigram scoring as DP paths
-            for (phrase, freq) in full_entries.into_iter() {
+            for (phrase, _) in full_entries.into_iter() {
                 let config = self.model.config.borrow();
-                
+
                 // Get unigram probability from word_bigram model (from interpolation2.text)
                 let unigram_prob = self.model.word_bigram.get_unigram_probability(&phrase);
-                
+
                 let lambda = config.lambda;
                 let sentence_length_penalty = config.sentence_length_penalty;
                 let unigram_factor = config.unigram_factor;
                 let full_key_boost = config.full_key_boost;
                 drop(config);
-                
+
                 // For full-key matches, we have no context (start of sentence)
                 // Use pure unigram: log(P(w) * unigram_lambda)
                 let safe_prob = (unigram_prob * (1.0 - lambda)).max(1e-10);
                 let mut score = safe_prob.ln();
-                
+
                 // Apply sentence length penalty (one word)
                 score -= sentence_length_penalty;
-                
+
                 // Userdict boost
                 let user_freq = self.model.userdict.frequency(&phrase);
                 if user_freq > 0 {
                     score += unigram_factor * (1.0 + (user_freq as f32)).ln();
                 }
-                
+
                 // Apply full-key boost to prefer exact dictionary matches
                 score += full_key_boost;
-                
+
                 results.push(Candidate::new(phrase, score));
             }
             // If a full dictionary match exists, include it but continue to also try composed variants
@@ -275,7 +279,8 @@ impl<P: SyllableParser> Engine<P> {
         const MAX_LONG_LOOKUP_SYLLABLES: usize = 10; // allow occasional long-word lookups if present in lexicon
 
         // A small per-input cache for existence checks to avoid repeated FST probes
-        let mut existence_cache: std::collections::HashMap<String, bool> = std::collections::HashMap::new();
+        let mut existence_cache: std::collections::HashMap<String, bool> =
+            std::collections::HashMap::new();
 
         // Try all possible word lengths at each position
         for i in 0..n {
@@ -295,30 +300,34 @@ impl<P: SyllableParser> Engine<P> {
                 // Look up this word in lexicon with frequencies
                 let candidates = self.model.lexicon.lookup_with_freq(&word_key);
 
-                for (word_text, freq) in candidates {
+                for (word_text, _) in candidates {
                     // Use word-level unigram/bigram scoring (matching upstream libpinyin)
                     // Upstream formula: log((λ * P(w2|w1) + (1-λ) * P(w2)) * P(pinyin)) - sentence_length_penalty
                     // Sentence length penalty discourages over-segmentation
-                    
+
                     let config = self.model.config.borrow();
-                    
+
                     // Get unigram probability from word_bigram model (from interpolation2.text)
                     // This is the correct P(w2) for the interpolation formula
                     let unigram_prob = self.model.word_bigram.get_unigram_probability(&word_text);
-                    
+
                     let lambda = config.lambda;
                     let sentence_length_penalty = config.sentence_length_penalty;
                     let unigram_factor = config.unigram_factor;
                     drop(config);
-                    
+
                     let mut word_score: f32;
-                    
+
                     let current_path = best_path[i].as_ref().unwrap();
                     if let Some((prev_word, _)) = current_path.last() {
                         // We have context: use interpolated bigram
                         // Upstream: log((bigram_lambda * P(w2|w1) + unigram_lambda * P(w2)) * pinyin_poss)
-                        let bigram_prob = self.model.word_bigram.get_probability(prev_word, &word_text);
-                        let interpolated_prob = lambda * bigram_prob + (1.0 - lambda) * unigram_prob;
+                        let bigram_prob = self
+                            .model
+                            .word_bigram
+                            .get_probability(prev_word, &word_text);
+                        let interpolated_prob =
+                            lambda * bigram_prob + (1.0 - lambda) * unigram_prob;
                         let safe_prob = interpolated_prob.max(1e-10);
                         word_score = safe_prob.ln();
                     } else {
@@ -327,11 +336,11 @@ impl<P: SyllableParser> Engine<P> {
                         let safe_prob = (unigram_prob * (1.0 - lambda)).max(1e-10);
                         word_score = safe_prob.ln();
                     }
-                    
+
                     // Apply sentence length penalty (upstream LONG_SENTENCE_PENALTY)
                     // This discourages paths with many words
                     word_score -= sentence_length_penalty;
-                    
+
                     // Userdict boost: upstream modifies lexicon frequencies directly with unigram_factor
                     // We use a separate userdict, so multiply by unigram_factor to match upstream effect
                     let user_freq = self.model.userdict.frequency(&word_text);
@@ -377,25 +386,29 @@ impl<P: SyllableParser> Engine<P> {
                 }
                 let long_candidates = self.model.lexicon.lookup_with_freq(&long_key);
 
-                for (word_text, freq) in long_candidates {
+                for (word_text, _) in long_candidates {
                     // Use word-level unigram/bigram scoring (matching upstream)
                     let config = self.model.config.borrow();
-                    
+
                     // Get unigram probability from word_bigram model (from interpolation2.text)
                     let unigram_prob = self.model.word_bigram.get_unigram_probability(&word_text);
-                    
+
                     let lambda = config.lambda;
                     let sentence_length_penalty = config.sentence_length_penalty;
                     let unigram_factor = config.unigram_factor;
                     drop(config);
-                    
+
                     let mut word_score: f32;
-                    
+
                     let current_path = best_path[i].as_ref().unwrap();
                     if let Some((prev_word, _)) = current_path.last() {
                         // Interpolated bigram scoring
-                        let bigram_prob = self.model.word_bigram.get_probability(prev_word, &word_text);
-                        let interpolated_prob = lambda * bigram_prob + (1.0 - lambda) * unigram_prob;
+                        let bigram_prob = self
+                            .model
+                            .word_bigram
+                            .get_probability(prev_word, &word_text);
+                        let interpolated_prob =
+                            lambda * bigram_prob + (1.0 - lambda) * unigram_prob;
                         let safe_prob = interpolated_prob.max(1e-10);
                         word_score = safe_prob.ln();
                     } else {
@@ -403,10 +416,10 @@ impl<P: SyllableParser> Engine<P> {
                         let safe_prob = (unigram_prob * (1.0 - lambda)).max(1e-10);
                         word_score = safe_prob.ln();
                     }
-                    
+
                     // Apply sentence length penalty (upstream LONG_SENTENCE_PENALTY)
                     word_score -= sentence_length_penalty;
-                    
+
                     // Userdict boost: use unigram_factor from config to match upstream
                     let user_freq = self.model.userdict.frequency(&word_text);
                     if user_freq > 0 {
@@ -489,12 +502,12 @@ impl<P: SyllableParser> Engine<P> {
     }
 
     /// Get reference to the configuration.
-    pub fn config(&self) -> std::cell::Ref<'_,crate::Config> {
+    pub fn config(&self) -> std::cell::Ref<'_, crate::Config> {
         self.model.config.borrow()
     }
 
     /// Get mutable reference to the configuration.
-    pub fn config_mut(&self) -> std::cell::RefMut<'_,crate::Config> {
+    pub fn config_mut(&self) -> std::cell::RefMut<'_, crate::Config> {
         self.model.config.borrow_mut()
     }
 }

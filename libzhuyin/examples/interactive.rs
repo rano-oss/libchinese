@@ -1,5 +1,7 @@
 use clap::{Parser as ClapParser, Subcommand};
-use libchinese_core::{Candidate, Config, Interpolator, Lexicon, Model, NGramModel, UserDict, WordBigram};
+use libchinese_core::{
+    Candidate, Config, Interpolator, Lexicon, Model, NGramModel, UserDict, WordBigram,
+};
 use libzhuyin::{Engine, ZhuyinParser};
 use std::io::{self, BufRead};
 use std::path::Path;
@@ -298,4 +300,3 @@ fn main() {
         }
     }
 }
-

@@ -28,7 +28,8 @@ fn main() {
     // Read bincode
     let mut file = File::open(bincode_path).expect("Failed to open bincode");
     let mut buffer = Vec::new();
-    file.read_to_end(&mut buffer).expect("Failed to read bincode");
+    file.read_to_end(&mut buffer)
+        .expect("Failed to read bincode");
     let entries: Vec<Vec<LexEntry>> =
         bincode::deserialize(&buffer).expect("Failed to deserialize bincode");
 
@@ -40,10 +41,20 @@ fn main() {
             let group = &entries[idx];
             println!("Found {} entries:", group.len());
             for (i, entry) in group.iter().enumerate() {
-                println!("  {}. {} (token={}, freq={})", i+1, entry.utf8, entry.token, entry.freq);
+                println!(
+                    "  {}. {} (token={}, freq={})",
+                    i + 1,
+                    entry.utf8,
+                    entry.token,
+                    entry.freq
+                );
             }
         } else {
-            println!("Error: Index {} out of range (total groups: {})", idx, entries.len());
+            println!(
+                "Error: Index {} out of range (total groups: {})",
+                idx,
+                entries.len()
+            );
         }
     } else {
         println!("Key '{}' not found in FST", search_key);

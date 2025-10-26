@@ -25,7 +25,7 @@ fn inspect_dataset(dataset_path: &str, search_key: Option<&str>) {
 
         println!("Lexicon FST:");
         println!("  - Keys count: {}", fst_map.len());
-        
+
         // If search_key is provided, look for it specifically
         if let Some(key) = search_key {
             println!("  - Searching for key: '{}'", key);
@@ -176,11 +176,15 @@ fn inspect_dataset(dataset_path: &str, search_key: Option<&str>) {
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    
+
     let (datasets, search_key) = if args.len() >= 2 {
         // If path provided, inspect just that one
         if args[1].starts_with("data/") {
-            let search = if args.len() >= 3 { Some(args[2].as_str()) } else { None };
+            let search = if args.len() >= 3 {
+                Some(args[2].as_str())
+            } else {
+                None
+            };
             (vec![args[1].clone()], search)
         } else {
             // First arg is search key
@@ -193,11 +197,14 @@ fn main() {
         }
     } else {
         // Default: inspect all
-        (vec![
-            "data/converted/simplified".to_string(),
-            "data/converted/traditional".to_string(),
-            "data/converted/zhuyin_traditional".to_string(),
-        ], None)
+        (
+            vec![
+                "data/converted/simplified".to_string(),
+                "data/converted/traditional".to_string(),
+                "data/converted/zhuyin_traditional".to_string(),
+            ],
+            None,
+        )
     };
 
     for dataset in datasets {

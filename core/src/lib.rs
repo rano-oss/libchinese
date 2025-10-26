@@ -203,7 +203,7 @@ impl Default for Config {
             full_key_boost: 2.0,
             // Lexicon frequency weight (multiplies sqrt(freq))
             // Using sqrt provides better discrimination than ln for large frequency ranges
-            lexicon_freq_weight: 30.0,  // Increased from 20.0 to favor lexicon words more
+            lexicon_freq_weight: 30.0, // Increased from 20.0 to favor lexicon words more
             // Lambda for interpolation: upstream default 0.293 (trained)
             // We'll start with a similar value
             lambda: 0.3,
@@ -212,7 +212,7 @@ impl Default for Config {
             word_bigram_weight: 20.0,
             // Multi-character word bonus: favor longer words
             // Increased to strongly favor proper nouns and multi-character words over single chars
-            multichar_word_bonus: 500.0,  // Increased from 100.0
+            multichar_word_bonus: 500.0, // Increased from 100.0
             // Upstream LONG_SENTENCE_PENALTY = log(1.2) ≈ 0.1823
             sentence_length_penalty: 1.2_f32.ln(),
             // Upstream unigram_factor for user learning boost
@@ -509,10 +509,7 @@ impl Lexicon {
             if let Some(idx) = map.get(key) {
                 let index = idx as usize;
                 if let Some(entries) = payloads.get(index) {
-                    return entries
-                        .iter()
-                        .map(|e| (e.utf8.clone(), e.freq))
-                        .collect();
+                    return entries.iter().map(|e| (e.utf8.clone(), e.freq)).collect();
                 }
             }
         }
@@ -544,7 +541,7 @@ impl Lexicon {
     /// This sums up all frequencies from all payloads. The result is cached in Model.
     pub fn compute_total_frequency(&self) -> u64 {
         let mut total: u64 = 0;
-        
+
         if let Some(payloads) = &self.payloads {
             for entries in payloads {
                 for entry in entries {
@@ -552,7 +549,7 @@ impl Lexicon {
                 }
             }
         }
-        
+
         total
     }
 
@@ -610,7 +607,12 @@ pub struct Model {
 
 impl Model {
     /// Create a new model with defaults.
-    pub fn new(lexicon: Lexicon, word_bigram: WordBigram, userdict: UserDict, config: Config) -> Self {
+    pub fn new(
+        lexicon: Lexicon,
+        word_bigram: WordBigram,
+        userdict: UserDict,
+        config: Config,
+    ) -> Self {
         let total_unigram_freq = lexicon.compute_total_frequency();
         Self {
             lexicon: Arc::new(lexicon),

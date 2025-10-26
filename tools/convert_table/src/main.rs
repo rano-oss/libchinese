@@ -272,18 +272,10 @@ fn main() -> Result<()> {
     let emoji_tables = [("emoji", data_dir.join("emoji.table"))];
 
     // Build simplified (pinyin syllable tokenization)
-    build_fst_and_bincode(
-        &simplified_tables,
-        &out_dir.join("simplified"),
-        "original",
-    )?;
+    build_fst_and_bincode(&simplified_tables, &out_dir.join("simplified"), "original")?;
 
     // Build traditional (pinyin syllable tokenization, convert zhuyin keys to pinyin)
-    build_fst_and_bincode(
-        &traditional_tables,
-        &out_dir.join("traditional"),
-        "pinyin",
-    )?;
+    build_fst_and_bincode(&traditional_tables, &out_dir.join("traditional"), "pinyin")?;
 
     // Build zhuyin (character tokenization, keep zhuyin/bopomofo keys)
     build_fst_and_bincode(
@@ -295,11 +287,7 @@ fn main() -> Result<()> {
     // Build emoji (pinyin syllable tokenization, original keys)
     if data_dir.join("emoji.table").exists() {
         println!("Building emoji lexicon...");
-        build_fst_and_bincode(
-            &emoji_tables,
-            &out_dir.join("emoji"),
-            "original",
-        )?;
+        build_fst_and_bincode(&emoji_tables, &out_dir.join("emoji"), "original")?;
     } else {
         println!("Skipping emoji (emoji.table not found)");
     }

@@ -137,7 +137,12 @@ impl Engine {
             }
         };
 
-        let model = Model::new(lex, word_bigram, userdict, libchinese_core::Config::default());
+        let model = Model::new(
+            lex,
+            word_bigram,
+            userdict,
+            libchinese_core::Config::default(),
+        );
         // let parser = Parser::with_syllables(PINYIN_SYLLABLES);
         Ok(Self::new(model))
     }
@@ -195,12 +200,12 @@ impl Engine {
     }
 
     /// Get reference to the configuration.
-    pub fn config(&self) -> std::cell::Ref<'_,libchinese_core::Config> {
+    pub fn config(&self) -> std::cell::Ref<'_, libchinese_core::Config> {
         self.inner.config()
     }
 
     /// Get mutable reference to the configuration.
-    pub fn config_mut(&self) -> std::cell::RefMut<'_,libchinese_core::Config> {
+    pub fn config_mut(&self) -> std::cell::RefMut<'_, libchinese_core::Config> {
         self.inner.config_mut()
     }
 
