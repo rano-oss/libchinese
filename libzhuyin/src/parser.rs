@@ -181,7 +181,7 @@ impl ZhuyinParser {
         }
 
         // dp_cost[i] = best cost for suffix starting at i
-        let mut dp_cost: Vec<f32> = vec![std::f32::INFINITY; n + 1];
+        let mut dp_cost: Vec<f32> = vec![f32::INFINITY; n + 1];
         // dp_choice[i] = Option<(next_pos, matched_string, fuzzy_flag)>
         let mut dp_choice: Vec<Option<(usize, String, bool)>> = vec![None; n + 1];
 
