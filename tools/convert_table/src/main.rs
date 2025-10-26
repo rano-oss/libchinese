@@ -1,6 +1,6 @@
 use anyhow::Result;
 use fst::MapBuilder;
-use libchinese_core::{Lambdas, NGramModel};
+use libchinese_core::Lambdas;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::{create_dir_all, File};
@@ -163,9 +163,6 @@ fn build_fst_and_bincode<P: AsRef<Path>>(
         }
     }
 
-    // Build NGramModel using serialize_ngram logic (Modified Kneser-Ney)
-    let mut model = NGramModel::new();
-
     // Precompute continuation counts similar to serialize_ngram
     use std::collections::HashSet;
     let mut left_sets: HashMap<String, HashSet<String>> = HashMap::new();
@@ -327,9 +324,9 @@ fn build_fst_and_bincode<P: AsRef<Path>>(
         }
     }
 
-    let ngram_path = out_prefix.join("ngram.bincode");
-    let mut nbf = File::create(&ngram_path)?;
-    bincode::serialize_into(&mut nbf, &model)?;
+    // let ngram_path = out_prefix.join("ngram.bincode");
+    // let mut nbf = File::create(&ngram_path)?;
+    // bincode::serialize_into(&mut nbf, &model)?;
 
     println!(
         "Wrote {} entries, fst={} bincode={}",

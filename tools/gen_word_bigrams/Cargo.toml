@@ -1,0 +1,11 @@
+[package]
+name = "gen_word_bigrams"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[dependencies]
+libchinese-core = { path = "../../core" }
+fst = "0.4"
+bincode = "1.3"
+serde = { version = "1.0", features = ["derive"] }

@@ -14,7 +14,7 @@ struct LexEntry {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Lambdas(pub [f32; 3]);
 
-fn inspect_dataset(dataset_path: &str) {
+fn inspect_dataset(dataset_path: &str, search_key: Option<&str>) {
     println!("\n=== Inspecting {} ===", dataset_path);
 
     // Check lexicon FST
@@ -25,14 +25,39 @@ fn inspect_dataset(dataset_path: &str) {
 
         println!("Lexicon FST:");
         println!("  - Keys count: {}", fst_map.len());
-        println!("  - Sample keys (first 10):");
-        let mut stream = fst_map.stream();
-        let mut count = 0;
-        while let Some((key, val)) = stream.next() {
-            println!("    {} -> {}", String::from_utf8_lossy(key), val);
-            count += 1;
-            if count >= 10 {
-                break;
+        
+        // If search_key is provided, look for it specifically
+        if let Some(key) = search_key {
+            println!("  - Searching for key: '{}'", key);
+            if let Some(val) = fst_map.get(key) {
+                println!("    ✓ FOUND: {} -> {}", key, val);
+            } else {
+                println!("    ✗ NOT FOUND: {}", key);
+                // Search for similar keys
+                println!("  - Similar keys:");
+                let mut stream = fst_map.stream();
+                let mut count = 0;
+                while let Some((k, v)) = stream.next() {
+                    let k_str = String::from_utf8_lossy(k);
+                    if k_str.contains(key) || key.contains(&k_str.as_ref()) {
+                        println!("    {} -> {}", k_str, v);
+                        count += 1;
+                        if count >= 10 {
+                            break;
+                        }
+                    }
+                }
+            }
+        } else {
+            println!("  - Sample keys (first 10):");
+            let mut stream = fst_map.stream();
+            let mut count = 0;
+            while let Some((key, val)) = stream.next() {
+                println!("    {} -> {}", String::from_utf8_lossy(key), val);
+                count += 1;
+                if count >= 10 {
+                    break;
+                }
             }
         }
     } else {
@@ -76,24 +101,6 @@ fn inspect_dataset(dataset_path: &str) {
         }
     } else {
         println!("❌ lexicon.bincode not found");
-    }
-
-    // Check ngram bincode
-    let ngram_path = format!("{}/ngram.bincode", dataset_path);
-    if Path::new(&ngram_path).exists() {
-        let mut file = File::open(&ngram_path).expect("Failed to open ngram bincode");
-        let mut buffer = Vec::new();
-        file.read_to_end(&mut buffer)
-            .expect("Failed to read ngram bincode");
-
-        let ngram: libchinese_core::NGramModel =
-            bincode::deserialize(&buffer).expect("Failed to deserialize ngram model");
-
-        println!("\nNGram Model:");
-        println!("  - File size: {} KB", buffer.len() / 1024);
-        println!("  ✓ NGramModel deserialized successfully");
-    } else {
-        println!("❌ ngram.bincode not found");
     }
 
     // Check lambdas FST
@@ -168,14 +175,33 @@ fn inspect_dataset(dataset_path: &str) {
 }
 
 fn main() {
-    let datasets = vec![
-        "data/converted/simplified",
-        "data/converted/traditional",
-        "data/converted/zhuyin_traditional",
-    ];
+    let args: Vec<String> = std::env::args().collect();
+    
+    let (datasets, search_key) = if args.len() >= 2 {
+        // If path provided, inspect just that one
+        if args[1].starts_with("data/") {
+            let search = if args.len() >= 3 { Some(args[2].as_str()) } else { None };
+            (vec![args[1].clone()], search)
+        } else {
+            // First arg is search key
+            let datasets = vec![
+                "data/converted/simplified".to_string(),
+                "data/converted/traditional".to_string(),
+                "data/converted/zhuyin_traditional".to_string(),
+            ];
+            (datasets, Some(args[1].as_str()))
+        }
+    } else {
+        // Default: inspect all
+        (vec![
+            "data/converted/simplified".to_string(),
+            "data/converted/traditional".to_string(),
+            "data/converted/zhuyin_traditional".to_string(),
+        ], None)
+    };
 
     for dataset in datasets {
-        inspect_dataset(dataset);
+        inspect_dataset(&dataset, search_key);
     }
 
     println!("\n=== Summary ===");

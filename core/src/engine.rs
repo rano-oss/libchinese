@@ -79,17 +79,36 @@ impl<P: SyllableParser> Engine<P> {
         *self.cache_misses.borrow_mut() += 1;
 
         // Get top segmentations from parser (parser already applied fuzzy matching)
-        let segs = self.parser.segment_top_k(input, 4, true);
+        // Use an adaptive k computed from Config and input length to balance
+        // recall vs CPU work. Parser internally uses dynamic beam width scaling
+        // (see parser.rs:840-842) so k has a non-linear effect on parser cost.
+        let input_len = input.len();
+        let cfg = self.model.config.borrow();
+        let short_k = cfg.segment_k_short;
+        let long_k = cfg.segment_k_long;
+        let max_k = cfg.segment_k_max;
+        drop(cfg);
+
+        // Heuristic: keep small inputs low, increase gradually for longer inputs,
+        // but clamp to a max. This mirrors upstream piecewise/proportional rules.
+        let k = if input_len <= 6 {
+            short_k
+        } else {
+            // add one extra segmentation per ~4 extra chars beyond 6
+            let extra = (input_len.saturating_sub(6)) / 4;
+            let computed = long_k.saturating_add(extra);
+            std::cmp::min(computed, max_k)
+        };
+
+        let segs = self.parser.segment_top_k(input, k, true);
 
         // Map from phrase -> best Candidate (keep highest score)
         let mut best: HashMap<String, Candidate> = HashMap::new();
 
         for seg in segs.into_iter() {
-            // Convert segmentation to lexicon lookup key
-            let key = Self::segmentation_to_key(&seg);
-
-            // Look up candidates for this key
-            let candidates = self.model.candidates_for_key(&key, self.limit);
+            // For each segmentation, generate candidates by trying all possible word boundaries
+            // e.g., [ni,hao,wo,shi] can be: "你好"+"我是", "你"+"好"+"我是", etc.
+            let candidates = self.generate_candidates_from_segmentation(&seg);
 
             // Merge candidates: keep the best score seen for this exact phrase
             for cand in candidates.into_iter() {
@@ -205,6 +224,245 @@ impl<P: SyllableParser> Engine<P> {
             .join("'")
     }
 
+    /// Generate candidates from a segmentation by trying all possible word combinations.
+    ///
+    /// Uses dynamic programming to find valid word sequences that cover the entire segmentation.
+    /// For each valid word sequence, looks up candidates and scores them.
+    fn generate_candidates_from_segmentation(&self, seg: &[P::Syllable]) -> Vec<Candidate> {
+        let n = seg.len();
+        if n == 0 {
+            return Vec::new();
+        }
+
+        // Result accumulator
+        let mut results: Vec<Candidate> = Vec::new();
+
+        // First: try the FULL segmentation as a single lexicon key (supports long dictionary entries)
+        let full_key = seg.iter().map(|s| s.text()).collect::<Vec<&str>>().join("'");
+        let full_entries = self.model.lexicon.lookup_with_freq(&full_key);
+        if !full_entries.is_empty() {
+            // Score full-key matches using the same word-level unigram/bigram scoring as DP paths
+            for (phrase, freq) in full_entries.into_iter() {
+                let config = self.model.config.borrow();
+                
+                // Calculate unigram probability: P(word) = freq(word) / total_freq
+                let unigram_prob = if self.model.total_unigram_freq > 0 {
+                    (freq as f64) / (self.model.total_unigram_freq as f64)
+                } else {
+                    1e-10
+                };
+                
+                let lambda = config.lambda;
+                let sentence_length_penalty = config.sentence_length_penalty;
+                let unigram_factor = config.unigram_factor;
+                let full_key_boost = config.full_key_boost;
+                drop(config);
+                
+                // For full-key matches, we have no context (start of sentence)
+                // Use pure unigram: log(P(w) * unigram_lambda)
+                let safe_prob = ((unigram_prob as f32) * (1.0 - lambda)).max(1e-10);
+                let mut score = safe_prob.ln();
+                
+                // Apply sentence length penalty (one word)
+                score -= sentence_length_penalty;
+                
+                // Userdict boost
+                let user_freq = self.model.userdict.frequency(&phrase);
+                if user_freq > 0 {
+                    score += unigram_factor * (1.0 + (user_freq as f32)).ln();
+                }
+                
+                // Apply full-key boost to prefer exact dictionary matches
+                score += full_key_boost;
+                
+                results.push(Candidate::new(phrase, score));
+            }
+            // If a full dictionary match exists, include it but continue to also try composed variants
+        }
+
+        // DP: best_path[i] = best candidate sequence covering syllables [0..i)
+        // Each entry is a Vec of (phrase, score) tuples
+        let mut best_path: Vec<Option<Vec<(String, f32)>>> = vec![None; n + 1];
+        best_path[0] = Some(Vec::new()); // empty path at start
+
+        // Maximum short-word length to compose cheaply; longer lengths will only be tried if an exact lexicon lookup exists
+        const MAX_SHORT_SYLLABLES: usize = 4;
+        const MAX_LONG_LOOKUP_SYLLABLES: usize = 10; // allow occasional long-word lookups if present in lexicon
+
+        // A small per-input cache for existence checks to avoid repeated FST probes
+        let mut existence_cache: std::collections::HashMap<String, bool> = std::collections::HashMap::new();
+
+        // Try all possible word lengths at each position
+        for i in 0..n {
+            if best_path[i].is_none() {
+                continue; // no valid path to position i
+            }
+
+            // First, cheap composition for common shorter words
+            for len in 1..=std::cmp::min(MAX_SHORT_SYLLABLES, n - i) {
+                // Build lexicon key for syllables [i..i+len)
+                let word_key: String = seg[i..i + len]
+                    .iter()
+                    .map(|s| s.text())
+                    .collect::<Vec<&str>>()
+                    .join("'");
+
+                // Look up this word in lexicon with frequencies
+                let candidates = self.model.lexicon.lookup_with_freq(&word_key);
+
+                for (word_text, freq) in candidates {
+                    // Use word-level unigram/bigram scoring (matching upstream libpinyin)
+                    // Upstream formula: log((λ * P(w2|w1) + (1-λ) * P(w2)) * P(pinyin)) - sentence_length_penalty
+                    // Sentence length penalty discourages over-segmentation
+                    
+                    let config = self.model.config.borrow();
+                    
+                    // Calculate unigram probability: P(word) = freq(word) / total_freq
+                    let unigram_prob = if self.model.total_unigram_freq > 0 {
+                        (freq as f64) / (self.model.total_unigram_freq as f64)
+                    } else {
+                        1e-10
+                    };
+                    
+                    let lambda = config.lambda;
+                    let sentence_length_penalty = config.sentence_length_penalty;
+                    let unigram_factor = config.unigram_factor;
+                    drop(config);
+                    
+                    let mut word_score: f32;
+                    
+                    let current_path = best_path[i].as_ref().unwrap();
+                    if let Some((prev_word, _)) = current_path.last() {
+                        // We have context: use interpolated bigram
+                        // Upstream: log((bigram_lambda * P(w2|w1) + unigram_lambda * P(w2)) * pinyin_poss)
+                        let bigram_prob = self.model.word_bigram.get_probability(prev_word, &word_text);
+                        let interpolated_prob = lambda * bigram_prob + (1.0 - lambda) * (unigram_prob as f32);
+                        let safe_prob = interpolated_prob.max(1e-10);
+                        word_score = safe_prob.ln();
+                    } else {
+                        // No context: use pure unigram with lambda scaling
+                        // Upstream: log(P(w) * pinyin_poss * unigram_lambda)
+                        let safe_prob = ((unigram_prob as f32) * (1.0 - lambda)).max(1e-10);
+                        word_score = safe_prob.ln();
+                    }
+                    
+                    // Apply sentence length penalty (upstream LONG_SENTENCE_PENALTY)
+                    // This discourages paths with many words
+                    word_score -= sentence_length_penalty;
+                    
+                    // Userdict boost: upstream modifies lexicon frequencies directly with unigram_factor
+                    // We use a separate userdict, so multiply by unigram_factor to match upstream effect
+                    let user_freq = self.model.userdict.frequency(&word_text);
+                    if user_freq > 0 {
+                        let boost = unigram_factor * (1.0 + (user_freq as f32)).ln();
+                        word_score += boost;
+                    }
+
+                    let mut new_path = current_path.clone();
+                    new_path.push((word_text, word_score));
+
+                    // Update best_path[i+len] if this is better
+                    let new_end = i + len;
+                    match &best_path[new_end] {
+                        None => {
+                            best_path[new_end] = Some(new_path);
+                        }
+                        Some(existing) => {
+                            let new_total: f32 = new_path.iter().map(|(_, s)| s).sum();
+                            let existing_total: f32 = existing.iter().map(|(_, s)| s).sum();
+                            if new_total > existing_total {
+                                best_path[new_end] = Some(new_path);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Additionally, probe for longer exact lexicon keys (rare but supported)
+            for len in (MAX_SHORT_SYLLABLES + 1)..=std::cmp::min(MAX_LONG_LOOKUP_SYLLABLES, n - i) {
+                let long_key: String = seg[i..i + len]
+                    .iter()
+                    .map(|s| s.text())
+                    .collect::<Vec<&str>>()
+                    .join("'");
+
+                // Cheap existence check first (avoid deserializing payloads)
+                let exists = *existence_cache
+                    .entry(long_key.clone())
+                    .or_insert_with(|| self.model.lexicon.has_key(&long_key));
+                if !exists {
+                    continue; // skip expensive processing when nothing exists
+                }
+                let long_candidates = self.model.lexicon.lookup_with_freq(&long_key);
+
+                for (word_text, freq) in long_candidates {
+                    // Use word-level unigram/bigram scoring (matching upstream)
+                    let config = self.model.config.borrow();
+                    
+                    // Calculate unigram probability
+                    let unigram_prob = if self.model.total_unigram_freq > 0 {
+                        (freq as f64) / (self.model.total_unigram_freq as f64)
+                    } else {
+                        1e-10
+                    };
+                    
+                    let lambda = config.lambda;
+                    let sentence_length_penalty = config.sentence_length_penalty;
+                    let unigram_factor = config.unigram_factor;
+                    drop(config);
+                    
+                    let mut word_score: f32;
+                    
+                    let current_path = best_path[i].as_ref().unwrap();
+                    if let Some((prev_word, _)) = current_path.last() {
+                        // Interpolated bigram scoring
+                        let bigram_prob = self.model.word_bigram.get_probability(prev_word, &word_text);
+                        let interpolated_prob = lambda * bigram_prob + (1.0 - lambda) * (unigram_prob as f32);
+                        let safe_prob = interpolated_prob.max(1e-10);
+                        word_score = safe_prob.ln();
+                    } else {
+                        // Pure unigram with lambda scaling
+                        let safe_prob = ((unigram_prob as f32) * (1.0 - lambda)).max(1e-10);
+                        word_score = safe_prob.ln();
+                    }
+                    
+                    // Apply sentence length penalty (upstream LONG_SENTENCE_PENALTY)
+                    word_score -= sentence_length_penalty;
+                    
+                    // Userdict boost: use unigram_factor from config to match upstream
+                    let user_freq = self.model.userdict.frequency(&word_text);
+                    if user_freq > 0 {
+                        word_score += unigram_factor * (1.0 + (user_freq as f32)).ln();
+                    }
+
+                    let mut new_path = current_path.clone();
+                    new_path.push((word_text, word_score));
+
+                    let new_end = i + len;
+                    match &best_path[new_end] {
+                        None => best_path[new_end] = Some(new_path),
+                        Some(existing) => {
+                            let new_total: f32 = new_path.iter().map(|(_, s)| s).sum();
+                            let existing_total: f32 = existing.iter().map(|(_, s)| s).sum();
+                            if new_total > existing_total {
+                                best_path[new_end] = Some(new_path);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Extract candidates from the best path that reaches the end and include them
+        if let Some(final_path) = &best_path[n] {
+            let full_text: String = final_path.iter().map(|(t, _)| t.as_str()).collect();
+            let total_score: f32 = final_path.iter().map(|(_, s)| s).sum();
+            results.push(Candidate::new(full_text, total_score));
+        }
+
+        results
+    }
+
     /// Get cache statistics for monitoring.
     ///
     /// Returns (hits, misses) tuple.
@@ -242,14 +500,6 @@ impl<P: SyllableParser> Engine<P> {
         self.cache.borrow_mut().clear();
         *self.cache_hits.borrow_mut() = 0;
         *self.cache_misses.borrow_mut() = 0;
-    }
-
-    /// Get reference to the n-gram model.
-    ///
-    /// Provides direct access to the n-gram model for features like
-    /// next-character prediction.
-    pub fn ngram(&self) -> &crate::NGramModel {
-        &self.model.ngram
     }
 
     /// Get reference to the user dictionary.

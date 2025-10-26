@@ -1,0 +1,13 @@
+[package]
+name = "show_lexicon_entry"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "show_lexicon_entry"
+path = "src/main.rs"
+
+[dependencies]
+fst = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+bincode = "1.3"

@@ -1,5 +1,5 @@
 use clap::{Parser as ClapParser, Subcommand};
-use libchinese_core::{Candidate, Config, Interpolator, Lexicon, Model, NGramModel, UserDict};
+use libchinese_core::{Candidate, Config, Interpolator, Lexicon, Model, NGramModel, UserDict, WordBigram};
 use libzhuyin::{Engine, ZhuyinParser};
 use std::io::{self, BufRead};
 use std::path::Path;
@@ -29,7 +29,7 @@ fn build_demo_engine() -> Engine {
 
     let mut ng = NGramModel::new();
     ng.insert_unigram("你", -1.0);
-    ng.insert_unigram("好", -1.2);
+    ng.insert_unigram("好", WordBigram::new(), -1.2);
     ng.insert_unigram("号", -2.0);
     ng.insert_unigram("中", -1.1);
     ng.insert_unigram("国", -1.3);
@@ -43,7 +43,7 @@ fn build_demo_engine() -> Engine {
     user.learn("你好");
 
     let cfg = libzhuyin::ZhuyinConfig::default().into_base();
-    let model = Model::new(lx, ng, user, cfg);
+    let model = Model::new(lx, ng, WordBigram::new(), user, cfg);
     Engine::new(model)
 }
 
@@ -298,3 +298,4 @@ fn main() {
         }
     }
 }
+

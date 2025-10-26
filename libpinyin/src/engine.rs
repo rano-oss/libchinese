@@ -9,7 +9,7 @@ use std::error::Error;
 use std::sync::Arc;
 
 use crate::parser::Parser;
-use libchinese_core::{Candidate, Interpolator, Lexicon, Model, NGramModel, UserDict};
+use libchinese_core::{Candidate, Lexicon, Model, UserDict};
 
 /// Public engine for libpinyin.
 ///
@@ -81,8 +81,7 @@ impl Engine {
     ///
     /// Expected layout (data-dir):
     ///  - lexicon.fst + lexicon.bincode    (lexicon)
-    ///  - ngram.bincode                    (serialized NGramModel)
-    ///  - lambdas.fst + lambdas.bincode   (interpolator)
+    ///  - word_bigram.bin                  (word-level bigrams)
     ///  - userdict.redb                    (persistent user dictionary)
     pub fn from_data_dir<P: AsRef<std::path::Path>>(data_dir: P) -> Result<Self, Box<dyn Error>> {
         let data_dir = data_dir.as_ref();
@@ -97,32 +96,6 @@ impl Engine {
                 fst_path, bincode_path, e
             )
         })?;
-
-        // Load ngram model if present
-        // Load interpolator first (required for NGramModel)
-        let fst_path = data_dir.join("lambdas.fst");
-        let bincode_path = data_dir.join("lambdas.bincode");
-        let interp = Interpolator::load(&fst_path, &bincode_path)?;
-
-        let ngram = {
-            let ng_path = data_dir.join("ngram.bincode");
-            let mut ng = if ng_path.exists() {
-                match NGramModel::load_bincode(&ng_path) {
-                    Ok(m) => m,
-                    Err(e) => {
-                        eprintln!(
-                            "warning: failed to load ngram.bincode: {}, using empty model",
-                            e
-                        );
-                        NGramModel::new()
-                    }
-                }
-            } else {
-                NGramModel::new()
-            };
-            ng.set_interpolator(interp);
-            ng
-        };
 
         // Userdict: use persistent userdict at ~/.pinyin/userdict.redb
         let userdict = {
@@ -141,7 +114,30 @@ impl Engine {
             UserDict::new(&ud_path)?
         };
 
-        let model = Model::new(lex, ngram, userdict, libchinese_core::Config::default());
+        // Load word bigram if present
+        let word_bigram = {
+            let wb_path = data_dir.join("word_bigram.bin");
+            if wb_path.exists() {
+                match libchinese_core::WordBigram::load(&wb_path) {
+                    Ok(wb) => {
+                        eprintln!("Loaded word bigram from {:?}", wb_path);
+                        wb
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "warning: failed to load word_bigram.bin: {}, using empty model",
+                            e
+                        );
+                        libchinese_core::WordBigram::new()
+                    }
+                }
+            } else {
+                eprintln!("word_bigram.bin not found, using empty model");
+                libchinese_core::WordBigram::new()
+            }
+        };
+
+        let model = Model::new(lex, word_bigram, userdict, libchinese_core::Config::default());
         // let parser = Parser::with_syllables(PINYIN_SYLLABLES);
         Ok(Self::new(model))
     }
@@ -188,14 +184,6 @@ impl Engine {
     /// ```
     pub fn commit(&self, phrase: &str) {
         self.inner.commit(phrase);
-    }
-
-    /// Get reference to the n-gram model for predictions.
-    ///
-    /// This allows direct access to the n-gram model for features like
-    /// next-character prediction in suggestion mode.
-    pub fn ngram(&self) -> &NGramModel {
-        self.inner.ngram()
     }
 
     /// Get reference to the user dictionary for learning.

@@ -9,7 +9,6 @@
 //! Public API:
 //! - `Candidate` - Scored text candidate with metadata
 //! - `Model` - Complete language model combining all components
-//! - `NGramModel` - Statistical language model with backoff smoothing
 //! - `Lexicon` - Pinyin/Zhuyin → Hanzi dictionary lookup
 //! - `UserDict` - Persistent user learning and frequency adaptation
 //! - `Config` - Configuration and feature flags
@@ -21,9 +20,8 @@ use std::fs::File;
 use std::io::Read;
 use std::sync::Arc;
 
-// Core modules
-pub mod ngram;
-pub use ngram::{Interpolator, Lambdas, NGramModel};
+pub mod word_bigram;
+pub use word_bigram::WordBigram;
 
 pub mod trie;
 pub use trie::TrieNode;
@@ -128,6 +126,41 @@ pub struct Config {
     /// Cost penalty for unknown segments in cost calculation
     /// Default: 10.0. Added to segment cost for unrecognized characters.
     pub unknown_cost: f32,
+
+    /// Boost (additive) applied to score for exact full-key matches.
+    /// Larger values prefer exact dictionary entries over composed alternatives.
+    pub full_key_boost: f32,
+    /// Multiplier applied to the log-frequency boost from lexicon payloads.
+    /// Higher values make common lexicon entries more preferred.
+    pub lexicon_freq_weight: f32,
+    /// Lambda parameter for interpolation model (unigram/bigram mixing)
+    /// Lambda is the weight for bigram probability: score = λ*P(w2|w1) + (1-λ)*P(w2)
+    /// Upstream libpinyin default: 0.293 (trained via deleted interpolation)
+    /// Range: [0.0, 1.0], where 0 = pure unigram, 1 = pure bigram
+    pub lambda: f32,
+    /// Weight for word-level bigram log probabilities
+    /// Controls influence of P(word2|word1) in DP scoring
+    pub word_bigram_weight: f32,
+    /// Bonus (additive) per character in multi-character words.
+    /// Encourages longer words over single characters to avoid character-by-character composition.
+    /// Default: 10000.0 makes 2-char words much more attractive than single chars.
+    /// NOTE: Can be reduced once word_bigram_weight is properly tuned
+    pub multichar_word_bonus: f32,
+    /// Sentence length penalty factor (upstream LONG_SENTENCE_PENALTY)
+    /// Applied per word in the path to discourage over-segmentation
+    /// Upstream value: ln(1.2) ≈ 0.1823
+    pub sentence_length_penalty: f32,
+    /// Unigram factor for user learning (upstream unigram_factor)
+    /// Multiplier for frequency boost when adding user-learned phrases
+    /// Upstream value: 7 for training, 3 for boosting existing entries
+    pub unigram_factor: f32,
+    // Segmentation tuning: how many top segmentations to request from parser
+    /// Number of segmentations for short inputs (chars)
+    pub segment_k_short: usize,
+    /// Base number of segmentations for medium/long inputs
+    pub segment_k_long: usize,
+    /// Maximum cap for k to avoid unbounded parser work
+    pub segment_k_max: usize,
 }
 
 impl Default for Config {
@@ -162,6 +195,28 @@ impl Default for Config {
             incomplete_penalty: 500,
             unknown_penalty: 1000,
             unknown_cost: 10.0,
+            // Segmentation tuning defaults
+            segment_k_short: 4,
+            segment_k_long: 8,
+            segment_k_max: 12,
+            // Exact-match boost: prefer full-key dictionary entries slightly
+            full_key_boost: 2.0,
+            // Lexicon frequency weight (multiplies sqrt(freq))
+            // Using sqrt provides better discrimination than ln for large frequency ranges
+            lexicon_freq_weight: 30.0,  // Increased from 20.0 to favor lexicon words more
+            // Lambda for interpolation: upstream default 0.293 (trained)
+            // We'll start with a similar value
+            lambda: 0.3,
+            // Word bigram weight: multiply log P(word2|word1) by this
+            // Increased to give word context more influence
+            word_bigram_weight: 20.0,
+            // Multi-character word bonus: favor longer words
+            // Increased to strongly favor proper nouns and multi-character words over single chars
+            multichar_word_bonus: 500.0,  // Increased from 100.0
+            // Upstream LONG_SENTENCE_PENALTY = log(1.2) ≈ 0.1823
+            sentence_length_penalty: 1.2_f32.ln(),
+            // Upstream unigram_factor for user learning boost
+            unigram_factor: 3.0,
         }
     }
 }
@@ -439,6 +494,68 @@ impl Lexicon {
         Vec::new()
     }
 
+    /// Lookup that also returns the lexicon frequency for each phrase (if available).
+    ///
+    /// For in-memory `map` entries the frequency is unknown (0). For FST/bincode
+    /// entries the stored `LexEntry.freq` is returned.
+    pub fn lookup_with_freq(&self, key: &str) -> Vec<(String, u32)> {
+        // Prefer in-memory map entries
+        if let Some(v) = self.map.get(key) {
+            return v.iter().cloned().map(|s| (s, 0)).collect();
+        }
+
+        // FST + bincode lookup
+        if let (Some(map), Some(payloads)) = (&self.fst_map, &self.payloads) {
+            if let Some(idx) = map.get(key) {
+                let index = idx as usize;
+                if let Some(entries) = payloads.get(index) {
+                    return entries
+                        .iter()
+                        .map(|e| (e.utf8.clone(), e.freq))
+                        .collect();
+                }
+            }
+        }
+
+        Vec::new()
+    }
+
+    /// Cheap existence check for a key.
+    ///
+    /// Returns true if the key exists either in the in-memory `map` or in the
+    /// FST index. This avoids deserializing payloads when only existence is
+    /// required.
+    pub fn has_key(&self, key: &str) -> bool {
+        // Check dynamic in-memory entries first
+        if self.map.contains_key(key) {
+            return true;
+        }
+
+        // Check FST index without touching payloads
+        if let Some(map) = &self.fst_map {
+            return map.get(key).is_some();
+        }
+
+        false
+    }
+
+    /// Compute total frequency of all lexicon entries (for unigram probability normalization).
+    ///
+    /// This sums up all frequencies from all payloads. The result is cached in Model.
+    pub fn compute_total_frequency(&self) -> u64 {
+        let mut total: u64 = 0;
+        
+        if let Some(payloads) = &self.payloads {
+            for entries in payloads {
+                for entry in entries {
+                    total += entry.freq as u64;
+                }
+            }
+        }
+        
+        total
+    }
+
     /// Load lexicon from FST + bincode artifacts.
     ///
     /// - fst_path: lexicon.fst file mapping keys to indices
@@ -477,68 +594,30 @@ impl Lexicon {
 
 // UserDict is implemented in `core::userdict` and exported above.
 
-/// High-level Model combining lexicon, n-gram model and user dictionary.
+/// High-level Model combining lexicon, word bigram model and user dictionary.
 ///
 /// Downstream engine implementations (lang-specific) will use this Model to
 /// generate and score candidates.
 #[derive(Debug, Clone)]
 pub struct Model {
     pub lexicon: Arc<Lexicon>,
-    pub ngram: Arc<NGramModel>,
+    pub word_bigram: Arc<WordBigram>,
     pub userdict: UserDict,
     pub config: RefCell<Config>,
+    /// Total frequency of all lexicon entries (for unigram normalization)
+    pub total_unigram_freq: u64,
 }
 
 impl Model {
     /// Create a new model with defaults.
-    pub fn new(lexicon: Lexicon, ngram: NGramModel, userdict: UserDict, config: Config) -> Self {
+    pub fn new(lexicon: Lexicon, word_bigram: WordBigram, userdict: UserDict, config: Config) -> Self {
+        let total_unigram_freq = lexicon.compute_total_frequency();
         Self {
             lexicon: Arc::new(lexicon),
-            ngram: Arc::new(ngram),
+            word_bigram: Arc::new(word_bigram),
             userdict,
             config: RefCell::new(config),
+            total_unigram_freq,
         }
-    }
-
-    /// Candidate generation from a joined pinyin key.
-    ///
-    /// This function:
-    /// 1. Looks up lexicon candidates for the provided key.
-    /// 2. Scores each candidate using the n-gram model and boosts using userdict frequency.
-    /// 3. Returns top `limit` results sorted by score descending.
-    ///
-    /// Note: The mapping from candidate text to token sequence is language-specific.
-    /// Here we treat each character as a token for scoring demo purposes.
-    pub fn candidates_for_key(&self, key: &str, limit: usize) -> Vec<Candidate> {
-        let raw = self.lexicon.lookup(key);
-        let config = self.config.borrow();
-        let mut cands: Vec<Candidate> = raw
-            .into_iter()
-            .map(|phrase| {
-                // Tokenize: for demo, split by char to create tokens.
-                let tokens: Vec<String> = phrase.chars().map(|c| c.to_string()).collect();
-                let mut score = self
-                    .ngram
-                    .score_sequence_with_interpolator(&tokens, &config, key);
-
-                // Boost with user frequency (log-ish)
-                let freq = self.userdict.frequency(&phrase);
-                if freq > 0 {
-                    // small boost: log(1 + freq)
-                    score += (1.0 + (freq as f32)).ln();
-                }
-
-                Candidate::new(phrase, score)
-            })
-            .collect();
-
-        // sort descending
-        cands.sort_by(|a, b| {
-            b.score
-                .partial_cmp(&a.score)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-        cands.truncate(limit);
-        cands
     }
 }

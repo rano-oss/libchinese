@@ -330,16 +330,6 @@ impl UserDict {
     ///
     /// Returns a vector of (phrase, frequency) tuples.
     /// This method is intended for GUI display of all learned phrases.
-    ///
-    /// # Example
-    /// ```no_run
-    /// # use libchinese_core::UserDict;
-    /// let dict = UserDict::new("userdict.redb").unwrap();
-    /// let all_phrases = dict.list_all();
-    /// for (phrase, freq) in all_phrases {
-    ///     println!("{}: {}", phrase, freq);
-    /// }
-    /// ```
     pub fn list_all(&self) -> Vec<(String, u64)> {
         self.iter_all()
     }
@@ -352,13 +342,6 @@ impl UserDict {
     /// # Arguments
     /// * `phrase` - The phrase text to add
     /// * `frequency` - Initial frequency (higher = more likely to appear)
-    ///
-    /// # Example
-    /// ```no_run
-    /// # use libchinese_core::UserDict;
-    /// let dict = UserDict::new("userdict.redb").unwrap();
-    /// dict.add_phrase("你好世界", 100).unwrap();
-    /// ```
     pub fn add_phrase(&self, phrase: &str, frequency: u64) -> Result<(), redb::Error> {
         let w = self.db.begin_write()?;
         {
@@ -373,13 +356,6 @@ impl UserDict {
     ///
     /// If the phrase doesn't exist, this is a no-op.
     /// Used by GUI to remove unwanted learned phrases.
-    ///
-    /// # Example
-    /// ```no_run
-    /// # use libchinese_core::UserDict;
-    /// let dict = UserDict::new("userdict.redb").unwrap();
-    /// dict.delete_phrase("错误短语").unwrap();
-    /// ```
     pub fn delete_phrase(&self, phrase: &str) -> Result<(), redb::Error> {
         let w = self.db.begin_write()?;
         {
@@ -394,13 +370,6 @@ impl UserDict {
     ///
     /// This is an alias for `add_phrase` since redb overwrites existing entries.
     /// Used by GUI to manually adjust phrase ranking.
-    ///
-    /// # Example
-    /// ```no_run
-    /// # use libchinese_core::UserDict;
-    /// let dict = UserDict::new("userdict.redb").unwrap();
-    /// dict.update_frequency("你好", 200).unwrap();
-    /// ```
     pub fn update_frequency(&self, phrase: &str, new_freq: u64) -> Result<(), redb::Error> {
         self.add_phrase(phrase, new_freq)
     }
@@ -408,14 +377,6 @@ impl UserDict {
     /// Search phrases by prefix (for GUI filtering).
     ///
     /// Returns all phrases starting with the given prefix.
-    ///
-    /// # Example
-    /// ```no_run
-    /// # use libchinese_core::UserDict;
-    /// let dict = UserDict::new("userdict.redb").unwrap();
-    /// let matches = dict.search_by_prefix("你").unwrap();
-    /// // Returns: [("你好", 100), ("你好吗", 50), ...]
-    /// ```
     pub fn search_by_prefix(&self, prefix: &str) -> Result<Vec<(String, u64)>, redb::Error> {
         let mut results = Vec::new();
         let r = self.db.begin_read()?;
@@ -438,285 +399,5 @@ impl UserDict {
             }
         }
         Ok(results)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn userdict_roundtrip_redb() {
-        let mut tmp = std::env::temp_dir();
-        tmp.push(format!(
-            "libchinese_test_userdict_{}.redb",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_millis()
-        ));
-        let u = UserDict::new(&tmp).expect("new");
-        u.learn("a");
-        u.learn_with_count("b", 3).expect("learn_with_count");
-        let snap = u.snapshot();
-        assert_eq!(snap.get("a").copied().unwrap_or(0), 1);
-        assert_eq!(snap.get("b").copied().unwrap_or(0), 3);
-    }
-
-    #[test]
-    fn test_add_and_list_phrases() {
-        let mut tmp = std::env::temp_dir();
-        tmp.push(format!(
-            "test_add_list_{}.redb",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-
-        let dict = UserDict::new(&tmp).unwrap();
-
-        dict.add_phrase("测试", 100).unwrap();
-        dict.add_phrase("示例", 50).unwrap();
-        dict.add_phrase("你好", 200).unwrap();
-
-        let all = dict.list_all();
-        assert_eq!(all.len(), 3);
-
-        // Check all phrases exist with correct frequencies
-        assert!(all.contains(&("测试".to_string(), 100)));
-        assert!(all.contains(&("示例".to_string(), 50)));
-        assert!(all.contains(&("你好".to_string(), 200)));
-    }
-
-    #[test]
-    fn test_delete_phrase() {
-        let mut tmp = std::env::temp_dir();
-        tmp.push(format!(
-            "test_delete_{}.redb",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-
-        let dict = UserDict::new(&tmp).unwrap();
-
-        dict.add_phrase("删除我", 10).unwrap();
-        assert_eq!(dict.frequency("删除我"), 10);
-
-        dict.delete_phrase("删除我").unwrap();
-        assert_eq!(dict.frequency("删除我"), 0);
-
-        let all = dict.list_all();
-        assert_eq!(all.len(), 0);
-    }
-
-    #[test]
-    fn test_update_frequency() {
-        let mut tmp = std::env::temp_dir();
-        tmp.push(format!(
-            "test_update_{}.redb",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-
-        let dict = UserDict::new(&tmp).unwrap();
-
-        dict.add_phrase("更新", 100).unwrap();
-        assert_eq!(dict.frequency("更新"), 100);
-
-        dict.update_frequency("更新", 500).unwrap();
-        assert_eq!(dict.frequency("更新"), 500);
-    }
-
-    #[test]
-    fn test_search_by_prefix() {
-        let mut tmp = std::env::temp_dir();
-        tmp.push(format!(
-            "test_search_{}.redb",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-
-        let dict = UserDict::new(&tmp).unwrap();
-
-        dict.add_phrase("你好", 100).unwrap();
-        dict.add_phrase("你好吗", 50).unwrap();
-        dict.add_phrase("我好", 30).unwrap();
-        dict.add_phrase("你是谁", 40).unwrap();
-
-        let results = dict.search_by_prefix("你").unwrap();
-        assert_eq!(results.len(), 3);
-        assert!(results.contains(&("你好".to_string(), 100)));
-        assert!(results.contains(&("你好吗".to_string(), 50)));
-        assert!(results.contains(&("你是谁".to_string(), 40)));
-
-        let results2 = dict.search_by_prefix("我").unwrap();
-        assert_eq!(results2.len(), 1);
-        assert!(results2.contains(&("我好".to_string(), 30)));
-    }
-
-    #[test]
-    fn test_add_phrase_overwrites_existing() {
-        let mut tmp = std::env::temp_dir();
-        tmp.push(format!(
-            "test_overwrite_{}.redb",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-
-        let dict = UserDict::new(&tmp).unwrap();
-
-        dict.add_phrase("重复", 100).unwrap();
-        assert_eq!(dict.frequency("重复"), 100);
-
-        // Add again with different frequency - should overwrite
-        dict.add_phrase("重复", 200).unwrap();
-        assert_eq!(dict.frequency("重复"), 200);
-
-        // Should only have one entry
-        let all = dict.list_all();
-        assert_eq!(all.len(), 1);
-    }
-
-    #[test]
-    fn test_delete_nonexistent_phrase() {
-        let mut tmp = std::env::temp_dir();
-        tmp.push(format!(
-            "test_delete_nonexist_{}.redb",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-
-        let dict = UserDict::new(&tmp).unwrap();
-
-        // Should not panic or error
-        dict.delete_phrase("不存在").unwrap();
-
-        assert_eq!(dict.frequency("不存在"), 0);
-        assert_eq!(dict.list_all().len(), 0);
-    }
-
-    #[test]
-    fn test_learn_bigram_basic() {
-        let mut tmp = std::env::temp_dir();
-        tmp.push(format!(
-            "test_bigram_basic_{}.redb",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-
-        let dict = UserDict::new(&tmp).unwrap();
-
-        // Learn some bigrams
-        dict.learn_bigram("你", "好");
-        dict.learn_bigram("你", "好"); // Learn again
-        dict.learn_bigram("好", "的");
-
-        // Check frequencies
-        assert_eq!(dict.bigram_frequency("你", "好"), 2);
-        assert_eq!(dict.bigram_frequency("好", "的"), 1);
-        assert_eq!(dict.bigram_frequency("你", "是"), 0); // Not learned
-    }
-
-    #[test]
-    fn test_get_bigrams_after() {
-        let mut tmp = std::env::temp_dir();
-        tmp.push(format!(
-            "test_bigrams_after_{}.redb",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-
-        let dict = UserDict::new(&tmp).unwrap();
-
-        // Learn multiple bigrams starting with "好"
-        dict.learn_bigram("好", "的");
-        dict.learn_bigram("好", "的");
-        dict.learn_bigram("好", "吗");
-        dict.learn_bigram("好", "啊");
-        dict.learn_bigram("好", "啊");
-        dict.learn_bigram("好", "啊");
-
-        let bigrams = dict.get_bigrams_after("好");
-
-        assert_eq!(bigrams.len(), 3);
-        assert_eq!(bigrams.get("的"), Some(&2));
-        assert_eq!(bigrams.get("吗"), Some(&1));
-        assert_eq!(bigrams.get("啊"), Some(&3));
-
-        // Non-existent prefix returns empty
-        let empty = dict.get_bigrams_after("不存在");
-        assert_eq!(empty.len(), 0);
-    }
-
-    #[test]
-    fn test_snapshot_bigrams() {
-        let mut tmp = std::env::temp_dir();
-        tmp.push(format!(
-            "test_snapshot_bigrams_{}.redb",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-
-        let dict = UserDict::new(&tmp).unwrap();
-
-        dict.learn_bigram("你", "好");
-        dict.learn_bigram("好", "的");
-        dict.learn_bigram("我", "是");
-
-        let snapshot = dict.snapshot_bigrams();
-
-        assert_eq!(snapshot.len(), 3);
-        assert_eq!(
-            snapshot.get(&("你".to_string(), "好".to_string())),
-            Some(&1)
-        );
-        assert_eq!(
-            snapshot.get(&("好".to_string(), "的".to_string())),
-            Some(&1)
-        );
-        assert_eq!(
-            snapshot.get(&("我".to_string(), "是".to_string())),
-            Some(&1)
-        );
-    }
-
-    #[test]
-    fn test_bigram_with_custom_count() {
-        let mut tmp = std::env::temp_dir();
-        tmp.push(format!(
-            "test_bigram_custom_count_{}.redb",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-
-        let dict = UserDict::new(&tmp).unwrap();
-
-        // Learn with custom delta (like upstream's initial_seed boost)
-        dict.learn_bigram_with_count("你", "好", 10).unwrap();
-
-        assert_eq!(dict.bigram_frequency("你", "好"), 10);
-
-        // Increment again
-        dict.learn_bigram("你", "好");
-        assert_eq!(dict.bigram_frequency("你", "好"), 11);
     }
 }

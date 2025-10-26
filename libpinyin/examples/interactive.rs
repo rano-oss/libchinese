@@ -1,13 +1,11 @@
 use clap::{Parser, Subcommand};
-use libchinese_core::{Candidate, Config, Interpolator, Lexicon, Model, NGramModel, UserDict};
-use std::fs::File;
-use std::io::Read;
+use libchinese_core::{Candidate, Lexicon, Model, UserDict};
 use std::io::{self, BufRead};
 use std::path::Path;
 
 fn build_model() -> Result<Model, Box<dyn std::error::Error>> {
     // Load runtime artifacts from `data/converted/simplified/` directory (required)
-    let data_dir = Path::new("..\\data\\converted\\simplified");
+    let data_dir = Path::new("data/converted/simplified");
     let fst_path = data_dir.join("lexicon.fst");
     let bincode_path = data_dir.join("lexicon.bincode");
 
@@ -18,25 +16,6 @@ fn build_model() -> Result<Model, Box<dyn std::error::Error>> {
         fst_path.display(),
         bincode_path.display()
     );
-
-    // Load ngram model from data/converted/simplified/ngram.bincode if present
-    let ng_path = data_dir.join("ngram.bincode");
-    let ng = if let Ok(mut f) = File::open(&ng_path) {
-        let mut b = Vec::new();
-        if f.read_to_end(&mut b).is_ok() {
-            if let Ok(m) = bincode::deserialize::<NGramModel>(&b) {
-                println!("✓ Loaded n-gram model from {}", ng_path.display());
-                m
-            } else {
-                eprintln!("⚠ Failed to deserialize ngram.bincode, using empty model");
-                NGramModel::new()
-            }
-        } else {
-            NGramModel::new()
-        }
-    } else {
-        NGramModel::new()
-    };
 
     // Load or create userdict
     let home = std::env::var("HOME")
@@ -52,19 +31,28 @@ fn build_model() -> Result<Model, Box<dyn std::error::Error>> {
         UserDict::new(&temp_path).expect("failed to create temp userdict")
     });
 
-    // Load interpolator or create empty one for demo
-    let lambdas_fst = data_dir.join("lambdas.fst");
-    let lambdas_bincode = data_dir.join("lambdas.bincode");
-    let interp = Interpolator::load(&lambdas_fst, &lambdas_bincode).unwrap_or_else(|e| {
-        eprintln!("⚠ Failed to load interpolator: {}", e);
-        Interpolator::empty_for_test()
-    });
-
-    let mut ng = ng;
-    ng.set_interpolator(interp);
+    // Load word bigram if present
+    let word_bigram = {
+        let wb_path = data_dir.join("word_bigram.bin");
+        if wb_path.exists() {
+            match libchinese_core::WordBigram::load(&wb_path) {
+                Ok(wb) => {
+                    println!("✓ Loaded word bigram from {:?}", wb_path);
+                    wb
+                }
+                Err(e) => {
+                    eprintln!("⚠ Failed to load word_bigram.bin: {}, using empty model", e);
+                    libchinese_core::WordBigram::new()
+                }
+            }
+        } else {
+            eprintln!("⚠ word_bigram.bin not found, using empty model");
+            libchinese_core::WordBigram::new()
+        }
+    };
 
     let cfg = libpinyin::PinyinConfig::default().into_base();
-    Ok(Model::new(lx, ng, user, cfg))
+    Ok(Model::new(lx, word_bigram, user, cfg))
 }
 
 fn print_candidate(key: &str, cand: &Candidate, idx: usize) {

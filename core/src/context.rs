@@ -47,27 +47,6 @@ impl Default for InputPurpose {
 /// - `candidate_cursor`: Which candidate is highlighted (0-based index)
 /// - `auxiliary_text`: Optional hint text (e.g., "第2页" for page indicator)
 /// - `input_purpose`: Hint about what kind of input is expected
-///
-/// # Example
-///
-/// ```
-/// use libchinese_core::ImeContext;
-///
-/// let mut context = ImeContext::new();
-/// context.preedit_text = "ni'hao".to_string();
-/// context.candidates = vec!["你好".to_string(), "尼好".to_string()];
-///
-/// // Platform reads fields
-/// if !context.commit_text.is_empty() {
-///     // Commit to application
-///     context.commit_text.clear();
-/// }
-///
-/// if !context.preedit_text.is_empty() {
-///     // Show preedit with cursor
-///     let cursor_pos = context.preedit_cursor;
-/// }
-/// ```
 #[derive(Debug, Clone, Default)]
 pub struct ImeContext {
     /// Text being composed (preedit/候选)

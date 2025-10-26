@@ -38,7 +38,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Load the IME engine
     println!("Loading engine from data directory...");
-    let data_dir = std::env::current_dir()?.join("data");
+    let data_dir = std::env::current_dir()?.join("data/converted/simplified");
     let backend = Engine::from_data_dir(&data_dir)?;
     let mut ime = ImeEngine::from_arc_with_page_size(backend.inner_arc(), 9);
 
