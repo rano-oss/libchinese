@@ -2,33 +2,18 @@
 //!
 //! This crate provides the pinyin-specific parser, fuzzy utilities and a high-
 //! level `Engine` that composes the parser with the shared `libchinese-core`
-//! model types. The implementation in this workspace is a correctness-first
-//! reimplementation; production optimizations (fst-backed lexicon, redb
-//! userdb, etc.) are planned in later phases.
+//! model types.
 //!
 //! Public API exported here:
 //! - `Parser` and `Syllable` from `parser`
 //! - `Engine` from `engine`
 //! - `FuzzyMap` from `fuzzy`
-//!
-//! Example
-//!
-//! ```no_run
-//! // Simple usage sketch:
-//! // let parser = libpinyin::Parser::with_syllables(&["ni", "hao"]);
-//! // let model = libchinese_core::Model::new(...);
-//! // let engine = libpinyin::Engine::new(model, parser);
-//! // let candidates = engine.input("nihao");
-//! ```
 
 // Re-export the language-specific modules.
 pub mod config;
 pub mod double_pinyin;
 pub mod engine;
 pub mod parser;
-
-// Cloud input support (Phase 4)
-pub mod cloud;
 
 // Re-export IME components from core (now at root level, not in ime::)
 pub use libchinese_core::{
@@ -42,9 +27,6 @@ pub use config::PinyinConfig;
 pub use double_pinyin::{get_scheme_data, DoublePinyinScheme, DoublePinyinSchemeData};
 pub use engine::{Engine, PINYIN_SYLLABLES};
 pub use parser::{Parser, Syllable};
-
-// Cloud input re-exports
-pub use cloud::{CloudCandidate, CloudInput, CloudProvider};
 
 /// Configuration for standard pinyin fuzzy matching rules.
 ///

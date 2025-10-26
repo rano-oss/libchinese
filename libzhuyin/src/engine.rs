@@ -9,7 +9,7 @@ use std::error::Error;
 use std::sync::Arc;
 
 use crate::parser::ZhuyinParser;
-use libchinese_core::{Candidate, Interpolator, Lexicon, Model, NGramModel, UserDict, WordBigram};
+use libchinese_core::{Candidate, Lexicon, Model, UserDict, WordBigram};
 
 /// All standard zhuyin/bopomofo syllables with tone marks.
 /// Generated from tsi.table - 1388 unique syllables.
@@ -1458,33 +1458,6 @@ impl Engine {
             )
         })?;
 
-        // Load interpolator first (required for NGramModel)
-        let fst_path = data_dir.join("lambdas.fst");
-        let bincode_path = data_dir.join("lambdas.bincode");
-        let interp = Interpolator::load(&fst_path, &bincode_path)?;
-
-        // Load ngram model if present
-        let ngram = {
-            let ng_path = data_dir.join("ngram.bincode");
-            let mut ng = if ng_path.exists() {
-                match NGramModel::load_bincode(&ng_path) {
-                    Ok(m) => m,
-                    Err(e) => {
-                        eprintln!(
-                            "warning: failed to load ngram.bincode: {}, using empty model",
-                            e
-                        );
-                        NGramModel::new()
-                    }
-                }
-            } else {
-                eprintln!("warning: ngram.bincode not found, using empty model");
-                NGramModel::new()
-            };
-            ng.set_interpolator(interp);
-            ng
-        };
-
         // Userdict: use persistent userdict at ~/.zhuyin/userdict.redb
         let userdict = {
             let home = std::env::var("HOME")
@@ -1502,7 +1475,7 @@ impl Engine {
             UserDict::new(&ud_path)?
         };
 
-        let model = Model::new(lex, ngram, WordBigram::new(), userdict, libchinese_core::Config::default());
+        let model = Model::new(lex, WordBigram::new(), userdict, libchinese_core::Config::default());
 
         // Parser is created internally using ZHUYIN_SYLLABLES
         Ok(Self::new(model))
@@ -1530,23 +1503,18 @@ impl Engine {
         self.inner.clear_cache();
     }
 
-    /// Get a reference to the ngram model
-    pub fn ngram(&self) -> &NGramModel {
-        self.inner.ngram()
-    }
-
     /// Get a reference to the user dictionary
     pub fn userdict(&self) -> &UserDict {
         self.inner.userdict()
     }
 
     /// Get a reference to the config
-    pub fn config(&self) -> std::cell::Ref<libchinese_core::Config> {
+    pub fn config(&self) -> std::cell::Ref<'_,libchinese_core::Config> {
         self.inner.config()
     }
 
     /// Get a mutable reference to the config
-    pub fn config_mut(&self) -> std::cell::RefMut<libchinese_core::Config> {
+    pub fn config_mut(&self) -> std::cell::RefMut<'_,libchinese_core::Config> {
         self.inner.config_mut()
     }
 
@@ -1554,16 +1522,6 @@ impl Engine {
     ///
     /// This increases the frequency/score for the given phrase, allowing the
     /// IME to learn user preferences over time.
-    ///
-    /// # Example
-    /// ```no_run
-    /// # use libzhuyin::Engine;
-    /// # let mut engine = Engine::from_data_dir("data").unwrap();
-    /// let candidates = engine.input("ㄋㄧㄏㄠ");
-    /// if let Some(selected) = candidates.first() {
-    ///     engine.commit(&selected.text);
-    /// }
-    /// ```
     pub fn commit(&self, phrase: &str) {
         self.inner.commit(phrase);
     }
@@ -1592,14 +1550,6 @@ impl Engine {
 ///
 /// # Returns
 /// `ImeEngine<ZhuyinParser>` configured with HSU fuzzy rules
-///
-/// # Example
-/// ```no_run
-/// use libzhuyin::create_ime_engine_hsu;
-///
-/// let ime = create_ime_engine_hsu("data/zhuyin", 9).unwrap();
-/// // Now ready to process bopomofo input
-/// ```
 pub fn create_ime_engine_hsu<P: AsRef<std::path::Path>>(
     data_dir: P,
     page_size: usize,
@@ -1610,20 +1560,6 @@ pub fn create_ime_engine_hsu<P: AsRef<std::path::Path>>(
     let fst_path = data_dir.join("lexicon.fst");
     let bincode_path = data_dir.join("lexicon.bincode");
     let lex = Lexicon::load_from_fst_bincode(&fst_path, &bincode_path)?;
-
-    // Load interpolator
-    let fst_path = data_dir.join("lambdas.fst");
-    let bincode_path = data_dir.join("lambdas.bincode");
-    let interp = Interpolator::load(&fst_path, &bincode_path)?;
-
-    // Load ngram
-    let ng_path = data_dir.join("ngram.bincode");
-    let mut ngram = if ng_path.exists() {
-        NGramModel::load_bincode(&ng_path)?
-    } else {
-        NGramModel::new()
-    };
-    ngram.set_interpolator(interp);
 
     // User dictionary
     let home = std::env::var("HOME")
@@ -1638,7 +1574,7 @@ pub fn create_ime_engine_hsu<P: AsRef<std::path::Path>>(
     let userdict = UserDict::new(&ud_path)?;
 
     // Create model with default config
-    let model = Model::new(lex, ngram, WordBigram::new(), userdict, libchinese_core::Config::default());
+    let model = Model::new(lex, WordBigram::new(), userdict, libchinese_core::Config::default());
 
     // Create parser with HSU fuzzy rules
     let fuzzy_rules = crate::fuzzy_presets::hsu_fuzzy_rules();
@@ -1675,10 +1611,6 @@ pub fn create_ime_engine_standard<P: AsRef<std::path::Path>>(
     let fst_path = data_dir.join("lexicon.fst");
     let bincode_path = data_dir.join("lexicon.bincode");
     let lex = Lexicon::load_from_fst_bincode(&fst_path, &bincode_path)?;
-
-    let fst_path = data_dir.join("lambdas.fst");
-    let bincode_path = data_dir.join("lambdas.bincode");
-    let interp = Interpolator::load(&fst_path, &bincode_path)?;
 
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
@@ -1727,10 +1659,6 @@ pub fn create_ime_engine_eten<P: AsRef<std::path::Path>>(
     let bincode_path = data_dir.join("lexicon.bincode");
     let lex = Lexicon::load_from_fst_bincode(&fst_path, &bincode_path)?;
 
-    let fst_path = data_dir.join("lambdas.fst");
-    let bincode_path = data_dir.join("lambdas.bincode");
-    let interp = Interpolator::load(&fst_path, &bincode_path)?;
-
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
         .unwrap_or_else(|_| ".".to_string());
@@ -1742,7 +1670,7 @@ pub fn create_ime_engine_eten<P: AsRef<std::path::Path>>(
     }
     let userdict = UserDict::new(&ud_path)?;
 
-    let model = Model::new(lex, ngram, WordBigram::new(), userdict, libchinese_core::Config::default());
+    let model = Model::new(lex, WordBigram::new(), userdict, libchinese_core::Config::default());
 
     // Create parser with ETEN fuzzy rules
     let fuzzy_rules = crate::fuzzy_presets::eten_fuzzy_rules();

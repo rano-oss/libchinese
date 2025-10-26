@@ -233,8 +233,7 @@ impl CandidateList {
     /// Select a candidate by index within the current page.
     /// Returns the selected candidate if the index is valid.
     pub fn select_by_index(&mut self, page_index: usize) -> Option<&Candidate> {
-        let page_len = self.current_page_len();
-        if page_index < page_len {
+        if page_index < self.current_page_len() {
             self.cursor = page_index;
             self.selected_candidate()
         } else {

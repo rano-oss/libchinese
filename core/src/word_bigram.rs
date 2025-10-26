@@ -24,6 +24,11 @@ pub struct WordBigram {
     data: HashMap<String, Vec<BigramEntry>>,
     /// Total frequency for each word1 (for normalization)
     totals: HashMap<String, u32>,
+    /// Unigram counts from interpolation2.text \1-gram section
+    /// Used for P(w2) in interpolation formula
+    unigram_counts: HashMap<String, u32>,
+    /// Total of all unigram counts (for normalization)
+    total_unigram_count: u64,
 }
 
 impl WordBigram {
@@ -32,6 +37,8 @@ impl WordBigram {
         Self {
             data: HashMap::new(),
             totals: HashMap::new(),
+            unigram_counts: HashMap::new(),
+            total_unigram_count: 0,
         }
     }
 
@@ -73,6 +80,33 @@ impl WordBigram {
             .push(entry);
         
         *self.totals.entry(word1).or_insert(0) += count;
+    }
+
+    /// Add a unigram observation from interpolation2.text
+    pub fn add_unigram(&mut self, word: String, count: u32) {
+        *self.unigram_counts.entry(word).or_insert(0) += count;
+        self.total_unigram_count += count as u64;
+    }
+
+    /// Get unigram probability P(word) from interpolation2.text data
+    /// Returns 0.0 if word not found
+    pub fn get_unigram_probability(&self, word: &str) -> f32 {
+        if let Some(&count) = self.unigram_counts.get(word) {
+            if self.total_unigram_count > 0 {
+                return (count as f64 / self.total_unigram_count as f64) as f32;
+            }
+        }
+        0.0
+    }
+
+    /// Get log unigram probability
+    pub fn get_log_unigram_probability(&self, word: &str) -> f32 {
+        let prob = self.get_unigram_probability(word);
+        if prob > 0.0 {
+            prob.ln()
+        } else {
+            -20.0 // Default for missing unigrams
+        }
     }
 
     /// Load from bincode file

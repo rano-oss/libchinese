@@ -213,17 +213,6 @@ impl<P: SyllableParser> Engine<P> {
         self.clear_cache();
     }
 
-    /// Convert a syllable segmentation to a lookup key.
-    ///
-    /// Joins syllables with apostrophes to match lexicon key format.
-    /// Example: ["ni", "hao"] -> "ni'hao"
-    fn segmentation_to_key(seg: &[P::Syllable]) -> String {
-        seg.iter()
-            .map(|s| s.text())
-            .collect::<Vec<&str>>()
-            .join("'")
-    }
-
     /// Generate candidates from a segmentation by trying all possible word combinations.
     ///
     /// Uses dynamic programming to find valid word sequences that cover the entire segmentation.
@@ -245,12 +234,8 @@ impl<P: SyllableParser> Engine<P> {
             for (phrase, freq) in full_entries.into_iter() {
                 let config = self.model.config.borrow();
                 
-                // Calculate unigram probability: P(word) = freq(word) / total_freq
-                let unigram_prob = if self.model.total_unigram_freq > 0 {
-                    (freq as f64) / (self.model.total_unigram_freq as f64)
-                } else {
-                    1e-10
-                };
+                // Get unigram probability from word_bigram model (from interpolation2.text)
+                let unigram_prob = self.model.word_bigram.get_unigram_probability(&phrase);
                 
                 let lambda = config.lambda;
                 let sentence_length_penalty = config.sentence_length_penalty;
@@ -260,7 +245,7 @@ impl<P: SyllableParser> Engine<P> {
                 
                 // For full-key matches, we have no context (start of sentence)
                 // Use pure unigram: log(P(w) * unigram_lambda)
-                let safe_prob = ((unigram_prob as f32) * (1.0 - lambda)).max(1e-10);
+                let safe_prob = (unigram_prob * (1.0 - lambda)).max(1e-10);
                 let mut score = safe_prob.ln();
                 
                 // Apply sentence length penalty (one word)
@@ -317,12 +302,9 @@ impl<P: SyllableParser> Engine<P> {
                     
                     let config = self.model.config.borrow();
                     
-                    // Calculate unigram probability: P(word) = freq(word) / total_freq
-                    let unigram_prob = if self.model.total_unigram_freq > 0 {
-                        (freq as f64) / (self.model.total_unigram_freq as f64)
-                    } else {
-                        1e-10
-                    };
+                    // Get unigram probability from word_bigram model (from interpolation2.text)
+                    // This is the correct P(w2) for the interpolation formula
+                    let unigram_prob = self.model.word_bigram.get_unigram_probability(&word_text);
                     
                     let lambda = config.lambda;
                     let sentence_length_penalty = config.sentence_length_penalty;
@@ -336,13 +318,13 @@ impl<P: SyllableParser> Engine<P> {
                         // We have context: use interpolated bigram
                         // Upstream: log((bigram_lambda * P(w2|w1) + unigram_lambda * P(w2)) * pinyin_poss)
                         let bigram_prob = self.model.word_bigram.get_probability(prev_word, &word_text);
-                        let interpolated_prob = lambda * bigram_prob + (1.0 - lambda) * (unigram_prob as f32);
+                        let interpolated_prob = lambda * bigram_prob + (1.0 - lambda) * unigram_prob;
                         let safe_prob = interpolated_prob.max(1e-10);
                         word_score = safe_prob.ln();
                     } else {
                         // No context: use pure unigram with lambda scaling
                         // Upstream: log(P(w) * pinyin_poss * unigram_lambda)
-                        let safe_prob = ((unigram_prob as f32) * (1.0 - lambda)).max(1e-10);
+                        let safe_prob = (unigram_prob * (1.0 - lambda)).max(1e-10);
                         word_score = safe_prob.ln();
                     }
                     
@@ -399,12 +381,8 @@ impl<P: SyllableParser> Engine<P> {
                     // Use word-level unigram/bigram scoring (matching upstream)
                     let config = self.model.config.borrow();
                     
-                    // Calculate unigram probability
-                    let unigram_prob = if self.model.total_unigram_freq > 0 {
-                        (freq as f64) / (self.model.total_unigram_freq as f64)
-                    } else {
-                        1e-10
-                    };
+                    // Get unigram probability from word_bigram model (from interpolation2.text)
+                    let unigram_prob = self.model.word_bigram.get_unigram_probability(&word_text);
                     
                     let lambda = config.lambda;
                     let sentence_length_penalty = config.sentence_length_penalty;
@@ -417,12 +395,12 @@ impl<P: SyllableParser> Engine<P> {
                     if let Some((prev_word, _)) = current_path.last() {
                         // Interpolated bigram scoring
                         let bigram_prob = self.model.word_bigram.get_probability(prev_word, &word_text);
-                        let interpolated_prob = lambda * bigram_prob + (1.0 - lambda) * (unigram_prob as f32);
+                        let interpolated_prob = lambda * bigram_prob + (1.0 - lambda) * unigram_prob;
                         let safe_prob = interpolated_prob.max(1e-10);
                         word_score = safe_prob.ln();
                     } else {
                         // Pure unigram with lambda scaling
-                        let safe_prob = ((unigram_prob as f32) * (1.0 - lambda)).max(1e-10);
+                        let safe_prob = (unigram_prob * (1.0 - lambda)).max(1e-10);
                         word_score = safe_prob.ln();
                     }
                     
@@ -511,12 +489,12 @@ impl<P: SyllableParser> Engine<P> {
     }
 
     /// Get reference to the configuration.
-    pub fn config(&self) -> std::cell::Ref<crate::Config> {
+    pub fn config(&self) -> std::cell::Ref<'_,crate::Config> {
         self.model.config.borrow()
     }
 
     /// Get mutable reference to the configuration.
-    pub fn config_mut(&self) -> std::cell::RefMut<crate::Config> {
+    pub fn config_mut(&self) -> std::cell::RefMut<'_,crate::Config> {
         self.model.config.borrow_mut()
     }
 }
