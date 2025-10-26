@@ -131,53 +131,6 @@ impl FuzzyMap {
         out
     }
 
-    /// Get just the alternative strings without penalties (for compatibility).
-    pub fn alternative_strings(&self, syllable: &str) -> Vec<String> {
-        self.alternatives(syllable)
-            .into_iter()
-            .map(|(s, _)| s)
-            .collect()
-    }
-
-    /// Query whether two syllables are considered fuzzy-equivalent (directly).
-    ///
-    /// Returns Some(penalty) if they are equivalent, None otherwise.
-    pub fn is_equivalent(&self, a: &str, b: &str) -> Option<f32> {
-        let a = a.trim().to_string();
-        let b = b.trim().to_string();
-
-        if a == b {
-            return Some(0.0);
-        }
-
-        if let Some(alts) = self.map.get(&a) {
-            for (alt, penalty) in alts.iter() {
-                if alt == &b {
-                    return Some(*penalty);
-                }
-            }
-        }
-
-        None
-    }
-
-    /// Get the penalty for a specific fuzzy match.
-    ///
-    /// Returns the penalty if `from` can fuzzy match to `to`, otherwise returns None.
-    pub fn get_penalty(&self, from: &str, to: &str) -> Option<f32> {
-        self.is_equivalent(from, to)
-    }
-
-    /// Get the default penalty for rules without explicit penalty.
-    pub fn default_penalty(&self) -> f32 {
-        self.default_penalty
-    }
-
-    /// Set the default penalty.
-    pub fn set_default_penalty(&mut self, penalty: f32) {
-        self.default_penalty = penalty;
-    }
-
     /// Convenience: apply fuzzy expansion to a sequence of syllables,
     /// producing a list of sequences with per-syllable alternatives and total penalties.
     ///
@@ -220,13 +173,5 @@ impl FuzzyMap {
         results.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
 
         results
-    }
-
-    /// Simpler version that returns just the sequences without penalties (for compatibility).
-    pub fn expand_sequence_strings(&self, seq: &[String], limit: usize) -> Vec<Vec<String>> {
-        self.expand_sequence(seq, limit)
-            .into_iter()
-            .map(|(s, _)| s)
-            .collect()
     }
 }

@@ -2,7 +2,6 @@
 //!
 //! This file exports `UserDict` whose public API is small and test-friendly.
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use redb::{Database, ReadableTable, TableDefinition};
@@ -10,9 +9,7 @@ use redb::{Database, ReadableTable, TableDefinition};
 /// UserDict backed by `redb`.
 #[derive(Clone, Debug)]
 pub struct UserDict {
-    db: Arc<Database>,
-    #[allow(dead_code)]
-    path: PathBuf,
+    db: Arc<Database>
 }
 
 impl UserDict {
@@ -23,8 +20,7 @@ impl UserDict {
         }
         let db = Database::create(path.as_ref())?;
         Ok(UserDict {
-            db: Arc::new(db),
-            path: path.as_ref().to_path_buf(),
+            db: Arc::new(db)
         })
     }
 

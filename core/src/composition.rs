@@ -123,9 +123,3 @@ impl Composition {
         &self.preedit[segment.range.clone()]
     }
 }
-
-impl Default for Composition {
-    fn default() -> Self {
-        Self::new()
-    }
-}

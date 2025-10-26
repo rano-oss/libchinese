@@ -254,9 +254,3 @@ impl CandidateList {
         self.cursor = 0;
     }
 }
-
-impl Default for CandidateList {
-    fn default() -> Self {
-        Self::new()
-    }
-}

@@ -24,12 +24,6 @@ pub enum InputMode {
     Passthrough,
 }
 
-impl Default for InputMode {
-    fn default() -> Self {
-        Self::Init
-    }
-}
-
 /// IME session state combining all session components.
 ///
 /// This struct manages the state across multiple key events. It contains:
@@ -185,11 +179,5 @@ impl ImeSession {
             self.composition =
                 Composition::with_cursor(context.preedit_text.clone(), context.preedit_cursor);
         }
-    }
-}
-
-impl Default for ImeSession {
-    fn default() -> Self {
-        Self::new()
     }
 }
