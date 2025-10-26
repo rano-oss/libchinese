@@ -107,6 +107,33 @@ impl WordBigram {
         }
     }
 
+    /// Get top N predictions after word1 based on bigram probabilities
+    /// Returns Vec<(word2, score)> sorted by score (descending)
+    pub fn get_predictions(&self, word1: &str, lambda: f32, top_n: usize) -> Vec<(String, f32)> {
+        if let Some(entries) = self.data.get(word1) {
+            let mut predictions: Vec<(String, f32)> = entries
+                .iter()
+                .map(|entry| {
+                    // Use interpolation formula: λ * P(w2|w1) + (1-λ) * P(w2)
+                    let bigram_prob = self.get_probability(word1, &entry.word);
+                    let unigram_prob = self.get_unigram_probability(&entry.word);
+                    let interpolated = lambda * bigram_prob + (1.0 - lambda) * unigram_prob;
+                    let score = interpolated.ln();
+                    (entry.word.clone(), score)
+                })
+                .collect();
+            
+            // Sort by score (descending)
+            predictions.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+            
+            // Return top N
+            predictions.truncate(top_n);
+            predictions
+        } else {
+            Vec::new()
+        }
+    }
+
     /// Load from bincode file
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self, Box<dyn std::error::Error>> {
         let file = File::open(path)?;

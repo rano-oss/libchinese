@@ -501,6 +501,13 @@ impl<P: SyllableParser> Engine<P> {
         &self.model.userdict
     }
 
+    /// Get reference to the model.
+    ///
+    /// Provides access to lexicon, word_bigram, and other model components.
+    pub fn model(&self) -> &crate::Model {
+        &self.model
+    }
+
     /// Get reference to the configuration.
     pub fn config(&self) -> std::cell::Ref<'_, crate::Config> {
         self.model.config.borrow()

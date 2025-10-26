@@ -154,9 +154,3 @@ impl InputBuffer {
         }
     }
 }
-
-impl Default for InputBuffer {
-    fn default() -> Self {
-        Self::new()
-    }
-}

@@ -479,17 +479,56 @@ impl<P: SyllableParser> Editor for SuggestionEditor<P> {
             return;
         }
 
-        // Suggestion mode: provide common particles as fallback
-        // (N-gram prediction removed - use word bigrams instead in future)
-        let candidates = vec![
-            Candidate::new("吗", 0.1),
-            Candidate::new("呢", 0.09),
-            Candidate::new("吧", 0.08),
-            Candidate::new("啊", 0.07),
-            Candidate::new("的", 0.06),
-        ];
-
-        session.candidates_mut().set_candidates(candidates);
+        // Get last word from context for word bigram prediction
+        let last_word = self.context.trim();
+        
+        // Get predictions from word bigram model
+        let config = self.backend.config();
+        let lambda = config.lambda;
+        drop(config);
+        
+        let word_predictions = self.backend.model().word_bigram.get_predictions(last_word, lambda, 10);
+        
+        // Also get user-learned bigrams
+        let user_bigrams = self.backend.userdict().get_bigrams_after(last_word);
+        
+        // Merge predictions: combine word_bigram predictions with user bigrams
+        let mut combined: Vec<(String, f32)> = word_predictions;
+        
+        // Add user bigrams with a boost
+        for (word, user_count) in user_bigrams {
+            let user_boost = (1.0 + user_count as f32).ln();
+            
+            // Find if this word already exists in predictions
+            if let Some(existing) = combined.iter_mut().find(|(w, _)| w == &word) {
+                existing.1 += user_boost; // Boost existing prediction
+            } else {
+                // Add new prediction from user bigrams
+                combined.push((word, user_boost));
+            }
+        }
+        
+        // Sort by score descending
+        combined.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        combined.truncate(10);
+        
+        if !combined.is_empty() {
+            let candidates: Vec<Candidate> = combined
+                .into_iter()
+                .map(|(word, score)| Candidate::new(word, score))
+                .collect();
+            session.candidates_mut().set_candidates(candidates);
+        } else {
+            // Fallback to common particles if no predictions available
+            let candidates = vec![
+                Candidate::new("吗", 0.1),
+                Candidate::new("呢", 0.09),
+                Candidate::new("吧", 0.08),
+                Candidate::new("啊", 0.07),
+                Candidate::new("的", 0.06),
+            ];
+            session.candidates_mut().set_candidates(candidates);
+        }
 
         // Clear composition in suggestion mode (no preedit)
         session.composition_mut().clear();
