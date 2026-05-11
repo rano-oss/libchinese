@@ -166,7 +166,7 @@ impl ImeSession {
         if self.candidates.num_pages() > 1 {
             let current_page = self.candidates.current_page() + 1; // 1-indexed for display
             let total_pages = self.candidates.num_pages();
-            context.auxiliary_text = format!("第{}页/{}", current_page, total_pages);
+            context.auxiliary_text = format!("{}/{}", current_page, total_pages);
         }
     }
 

@@ -23,6 +23,9 @@ pub enum EditorResult {
     /// Text should be committed and mode should reset
     CommitAndReset(String),
 
+    /// Text should be committed, remove `bytes` from input buffer start, regenerate candidates
+    CommitPartial(String, usize),
+
     /// Request to switch to a different mode
     ModeSwitch(crate::session::InputMode),
 
@@ -148,11 +151,16 @@ impl<P: SyllableParser> PhoneticEditor<P> {
         // Select first candidate
         if let Some(candidate) = session.candidates().selected_candidate() {
             let text = candidate.text.clone();
+            let input_consumed = candidate.input_consumed;
 
             // Learn the phrase
             self.backend.commit(&text);
 
-            EditorResult::CommitAndReset(text)
+            if let Some(consumed) = input_consumed {
+                EditorResult::CommitPartial(text, consumed)
+            } else {
+                EditorResult::CommitAndReset(text)
+            }
         } else {
             EditorResult::PassThrough
         }
@@ -162,8 +170,13 @@ impl<P: SyllableParser> PhoneticEditor<P> {
     fn handle_enter(&mut self, session: &mut ImeSession) -> EditorResult {
         if let Some(candidate) = session.candidates().selected_candidate() {
             let text = candidate.text.clone();
+            let input_consumed = candidate.input_consumed;
             self.backend.commit(&text);
-            EditorResult::CommitAndReset(text)
+            if let Some(consumed) = input_consumed {
+                EditorResult::CommitPartial(text, consumed)
+            } else {
+                EditorResult::CommitAndReset(text)
+            }
         } else {
             // Commit raw input
             let raw = session.input_buffer().text().to_string();
@@ -184,8 +197,13 @@ impl<P: SyllableParser> PhoneticEditor<P> {
         let index = (n - 1) as usize;
         if let Some(candidate) = session.candidates_mut().select_by_index(index) {
             let text = candidate.text.clone();
+            let input_consumed = candidate.input_consumed;
             self.backend.commit(&text);
-            EditorResult::CommitAndReset(text)
+            if let Some(consumed) = input_consumed {
+                EditorResult::CommitPartial(text, consumed)
+            } else {
+                EditorResult::CommitAndReset(text)
+            }
         } else {
             EditorResult::PassThrough
         }
@@ -205,15 +223,26 @@ impl<P: SyllableParser> Editor for PhoneticEditor<P> {
             // Cursor navigation - update session but stay in mode
             KeyEvent::Left => {
                 session.input_buffer_mut().move_left();
+                self.update_candidates(session);
                 EditorResult::Handled
             }
             KeyEvent::Right => {
                 session.input_buffer_mut().move_right();
+                self.update_candidates(session);
                 EditorResult::Handled
             }
             KeyEvent::Up => {
                 if !session.candidates().is_empty() {
-                    session.candidates_mut().cursor_up();
+                    if !session.candidates_mut().cursor_up() {
+                        // At top of page, go to previous page and select last item
+                        let candidates = session.candidates_mut();
+                        if candidates.page_up() {
+                            let page_len = candidates.current_page_candidates().len();
+                            if page_len > 0 {
+                                candidates.select_by_index(page_len - 1);
+                            }
+                        }
+                    }
                     EditorResult::Handled
                 } else {
                     EditorResult::PassThrough
@@ -221,7 +250,13 @@ impl<P: SyllableParser> Editor for PhoneticEditor<P> {
             }
             KeyEvent::Down => {
                 if !session.candidates().is_empty() {
-                    session.candidates_mut().cursor_down();
+                    if !session.candidates_mut().cursor_down() {
+                        // At bottom of page, go to next page and select first item
+                        let candidates = session.candidates_mut();
+                        if candidates.page_down() {
+                            candidates.select_by_index(0);
+                        }
+                    }
                     EditorResult::Handled
                 } else {
                     EditorResult::PassThrough
@@ -250,7 +285,7 @@ impl<P: SyllableParser> Editor for PhoneticEditor<P> {
     }
 
     fn update_candidates(&mut self, session: &mut ImeSession) {
-        let input = session.input_buffer().text();
+        let input = session.input_buffer().text().to_string();
 
         if input.is_empty() {
             session.candidates_mut().clear();
@@ -258,18 +293,18 @@ impl<P: SyllableParser> Editor for PhoneticEditor<P> {
         }
 
         // Get candidates from backend
-        let backend_candidates = self.backend.input(input);
+        let backend_candidates = self.backend.input(&input);
 
-        // Convert to our Candidate type
-        let candidates: Vec<Candidate> = backend_candidates
-            .into_iter()
-            .map(|c| Candidate::new(c.text, c.score))
-            .collect();
+        // Convert to our Candidate type, preserving input_consumed for partial candidates
+        let candidates: Vec<Candidate> = backend_candidates;
 
         session.candidates_mut().set_candidates(candidates);
 
-        // Update composition
-        session.update_composition_from_input();
+        // Update composition with syllable-separated preedit (e.g., "wo'de")
+        let input_cursor = session.input_buffer().cursor();
+        let (preedit, cursor) = self.backend.preedit_with_separators(&input, input_cursor);
+        session.composition_mut().set_text(preedit);
+        session.composition_mut().set_cursor(cursor);
     }
 
     fn reset(&mut self) {
@@ -456,8 +491,11 @@ impl<P: SyllableParser> Editor for SuggestionEditor<P> {
             // Escape - exit suggestion mode
             KeyEvent::Escape => EditorResult::CommitAndReset(String::new()),
 
-            // Any other key - exit suggestion mode
-            _ => EditorResult::CommitAndReset(String::new()),
+            // Any other key - exit suggestion mode and pass through
+            _ => {
+                self.active = false;
+                EditorResult::PassThrough
+            }
         }
     }
 
@@ -469,24 +507,28 @@ impl<P: SyllableParser> Editor for SuggestionEditor<P> {
 
         // Get last word from context for word bigram prediction
         let last_word = self.context.trim();
-        
+
         // Get predictions from word bigram model
         let config = self.backend.config();
         let lambda = config.lambda;
         drop(config);
-        
-        let word_predictions = self.backend.model().word_bigram.get_predictions(last_word, lambda, 10);
-        
+
+        let word_predictions = self
+            .backend
+            .model()
+            .word_bigram
+            .get_predictions(last_word, lambda, 10);
+
         // Also get user-learned bigrams
         let user_bigrams = self.backend.userdict().get_bigrams_after(last_word);
-        
+
         // Merge predictions: combine word_bigram predictions with user bigrams
         let mut combined: Vec<(String, f32)> = word_predictions;
-        
+
         // Add user bigrams with a boost
         for (word, user_count) in user_bigrams {
             let user_boost = (1.0 + user_count as f32).ln();
-            
+
             // Find if this word already exists in predictions
             if let Some(existing) = combined.iter_mut().find(|(w, _)| w == &word) {
                 existing.1 += user_boost; // Boost existing prediction
@@ -495,11 +537,11 @@ impl<P: SyllableParser> Editor for SuggestionEditor<P> {
                 combined.push((word, user_boost));
             }
         }
-        
+
         // Sort by score descending
         combined.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         combined.truncate(10);
-        
+
         if !combined.is_empty() {
             let candidates: Vec<Candidate> = combined
                 .into_iter()

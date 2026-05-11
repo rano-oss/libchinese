@@ -153,4 +153,12 @@ impl InputBuffer {
             false
         }
     }
+
+    /// Remove the first `n` bytes from the buffer.
+    /// Adjusts cursor position accordingly.
+    pub fn remove_front(&mut self, n: usize) {
+        let n = n.min(self.text.len());
+        self.text.drain(..n);
+        self.cursor = self.cursor.saturating_sub(n);
+    }
 }

@@ -307,7 +307,47 @@ impl<P: SyllableParser> ImeEngine<P> {
                 }
             }
             InputMode::Punctuation => self.punct_editor.process_key(key, &mut self.session),
-            InputMode::Suggestion => self.suggestion_editor.process_key(key, &mut self.session),
+            InputMode::Suggestion => {
+                let result = self
+                    .suggestion_editor
+                    .process_key(key.clone(), &mut self.session);
+                // If suggestion editor switches to phonetic mode, re-process the key
+                match &result {
+                    EditorResult::ModeSwitch(mode) => {
+                        let mode = *mode;
+                        self.suggestion_editor.reset();
+                        self.session.set_mode(mode);
+                        self.session.candidates_mut().clear();
+                        if mode == InputMode::Phonetic {
+                            self.phonetic_editor.process_key(key, &mut self.session)
+                        } else {
+                            result
+                        }
+                    }
+                    EditorResult::CommitAndReset(s) if s.is_empty() => {
+                        let is_phonetic = matches!(key, KeyEvent::Char(ch) if
+                            ch.is_ascii_lowercase()
+                            || ('\u{3105}'..='\u{3129}').contains(&ch)
+                            || matches!(ch, 'ˊ' | 'ˇ' | 'ˋ' | '˙')
+                        );
+                        if is_phonetic {
+                            // Reset and re-process as Init → Phonetic
+                            self.reset();
+                            self.session.activate();
+                            self.session.set_mode(InputMode::Phonetic);
+                            self.phonetic_editor.process_key(key, &mut self.session)
+                        } else {
+                            result
+                        }
+                    }
+                    EditorResult::PassThrough => {
+                        // Suggestion editor deactivated itself, clean up
+                        self.reset();
+                        EditorResult::PassThrough
+                    }
+                    _ => result,
+                }
+            }
             InputMode::Passthrough => {
                 // Unreachable: passthrough handled before match
                 unreachable!("Passthrough mode should be handled before routing")
@@ -359,6 +399,27 @@ impl<P: SyllableParser> ImeEngine<P> {
                 self.maybe_auto_suggest(&committed_text);
 
                 // No auxiliary text after reset (inactive)
+                KeyResult::Handled
+            }
+            EditorResult::CommitPartial(text, bytes_consumed) => {
+                // Apply full-width conversion if enabled
+                let text = if self.phonetic_editor.backend().config().is_fullwidth() {
+                    crate::utils::to_fullwidth(&text)
+                } else {
+                    text
+                };
+
+                // Commit the partial text
+                if !text.is_empty() {
+                    self.context.commit_text = text;
+                }
+
+                // Remove consumed bytes from input buffer and regenerate candidates
+                self.session.input_buffer_mut().remove_front(bytes_consumed);
+                self.phonetic_editor.update_candidates(&mut self.session);
+                self.session.sync_to_context(&mut self.context);
+                self.update_auxiliary_text();
+
                 KeyResult::Handled
             }
             EditorResult::ModeSwitch(mode) => {

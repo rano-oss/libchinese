@@ -49,7 +49,7 @@ impl<P: SyllableParser> Engine<P> {
         Self {
             model,
             parser,
-            limit: 8,
+            limit: 50,
             cache: RefCell::new(lru::LruCache::new(
                 std::num::NonZeroUsize::new(cache_capacity)
                     .unwrap_or(std::num::NonZeroUsize::new(1000).unwrap()),
@@ -84,7 +84,7 @@ impl<P: SyllableParser> Engine<P> {
         // recall vs CPU work. Parser internally uses dynamic beam width scaling
         // (see parser.rs:840-842) so k has a non-linear effect on parser cost.
         let input_len = input.len();
-        
+
         // Hardcoded segmentation limits (previously in Config)
         let short_k: usize = 4;
         let long_k: usize = 8;
@@ -133,7 +133,11 @@ impl<P: SyllableParser> Engine<P> {
         drop(config);
 
         // Sort by score (higher is better)
-        vec.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        vec.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         if vec.len() > self.limit {
             vec.truncate(self.limit);
@@ -388,11 +392,46 @@ impl<P: SyllableParser> Engine<P> {
             }
         }
 
-        // Extract candidates from the best path that reaches the end and include them
+        // Extract candidates from the best path that reaches the end
         if let Some(final_path) = &best_path[n] {
             let full_text: String = final_path.iter().map(|(t, _)| t.as_str()).collect();
             let total_score: f32 = final_path.iter().map(|(_, s)| s).sum();
             results.push(Candidate::new(full_text, total_score));
+        }
+
+        // Also include partial candidates (covering first k syllables, k < n)
+        // This allows users to select single characters or shorter phrases incrementally.
+        // Look up ALL dictionary entries for each prefix span, not just the DP best path.
+        if n > 1 {
+            let partial_penalty = 100.0; // Ensure partial candidates always rank after full-coverage
+            for k in 1..n {
+                let prefix_key: String = seg[..k]
+                    .iter()
+                    .map(|s| s.text())
+                    .collect::<Vec<&str>>()
+                    .join("'");
+                let bytes_consumed: usize = seg[..k].iter().map(|s| s.text().len()).sum();
+
+                let entries = self.model.lexicon.lookup_with_freq(&prefix_key);
+                for (phrase, _) in entries {
+                    let unigram_prob = self.model.word_bigram.get_unigram_probability(&phrase);
+                    let safe_prob = unigram_prob.max(1e-10);
+                    let mut score = safe_prob.ln();
+
+                    // Userdict boost
+                    let user_freq = self.model.userdict.frequency(&phrase);
+                    if user_freq > 0 {
+                        let config = self.model.config.borrow();
+                        score += config.unigram_factor * (1.0 + (user_freq as f32)).ln();
+                    }
+
+                    results.push(Candidate::with_input_consumed(
+                        phrase,
+                        score - partial_penalty,
+                        bytes_consumed,
+                    ));
+                }
+            }
         }
 
         results
@@ -460,5 +499,37 @@ impl<P: SyllableParser> Engine<P> {
     /// Get mutable reference to the configuration.
     pub fn config_mut(&self) -> std::cell::RefMut<'_, crate::Config> {
         self.model.config.borrow_mut()
+    }
+
+    /// Segment input and return preedit text with apostrophe separators between syllables,
+    /// along with the mapped cursor position.
+    ///
+    /// For example, "wode" with cursor at 2 → ("wo'de", 2), cursor at 4 → ("wo'de", 5).
+    /// The cursor is adjusted to account for inserted apostrophes.
+    pub fn preedit_with_separators(&self, input: &str, input_cursor: usize) -> (String, usize) {
+        if input.is_empty() {
+            return (String::new(), 0);
+        }
+        let segs = self.parser.segment_top_k(input, 1, true);
+        if let Some(seg) = segs.into_iter().next() {
+            if seg.len() > 1 {
+                let mut preedit = String::new();
+                let mut mapped_cursor = input_cursor;
+                let mut input_pos = 0;
+                for (i, s) in seg.iter().enumerate() {
+                    if i > 0 {
+                        preedit.push('\'');
+                        // If cursor is past this syllable boundary, add 1 for the apostrophe
+                        if input_cursor > input_pos {
+                            mapped_cursor += 1;
+                        }
+                    }
+                    preedit.push_str(s.text());
+                    input_pos += s.text().len();
+                }
+                return (preedit, mapped_cursor);
+            }
+        }
+        (input.to_string(), input_cursor)
     }
 }

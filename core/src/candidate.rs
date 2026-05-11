@@ -15,6 +15,11 @@ use std::ops::Range;
 pub struct Candidate {
     pub text: String,
     pub score: f32,
+    /// Number of input bytes this candidate consumes (for partial candidates).
+    /// When set, selecting this candidate should remove this many bytes from the input buffer
+    /// rather than clearing the entire buffer.
+    #[serde(skip)]
+    pub input_consumed: Option<usize>,
 }
 
 impl Candidate {
@@ -22,6 +27,15 @@ impl Candidate {
         Candidate {
             text: text.into(),
             score,
+            input_consumed: None,
+        }
+    }
+
+    pub fn with_input_consumed<T: Into<String>>(text: T, score: f32, consumed: usize) -> Self {
+        Candidate {
+            text: text.into(),
+            score,
+            input_consumed: Some(consumed),
         }
     }
 }
