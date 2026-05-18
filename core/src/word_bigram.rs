@@ -1,209 +1,291 @@
-// core/src/word_bigram.rs
-//
-// Word-level bigram model for phrase-to-phrase transitions.
-// Stores P(word2 | word1) to score word sequences in candidate generation.
+//! Memory-mapped word bigram model for zero-copy n-gram scoring.
+//!
+//! Provides P(word2|word1) lookups and unigram probabilities
+//! with zero heap allocation for model data.
 
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::fs::File;
-use std::io::{BufReader, BufWriter};
+use memmap2::Mmap;
 use std::path::Path;
 
-/// Entry in a word's bigram distribution
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BigramEntry {
-    pub word: String,
-    pub count: u32,
-}
+const WBGR_MAGIC: &[u8; 4] = b"WBGR";
+const WBGR_VERSION: u32 = 1;
+const WBGR_HEADER_SIZE: usize = 32;
 
-/// Word-level bigram model
-/// Maps word1 -> list of (word2, count) pairs
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Memory-mapped word bigram model.
 pub struct WordBigram {
-    /// Bigram data: word1 -> [(word2, count), ...]
-    data: HashMap<String, Vec<BigramEntry>>,
-    /// Total frequency for each word1 (for normalization)
-    totals: HashMap<String, u32>,
-    /// Unigram counts from interpolation2.text \1-gram section
-    /// Used for P(w2) in interpolation formula
-    unigram_counts: HashMap<String, u32>,
-    /// Total of all unigram counts (for normalization)
+    data_mmap: Option<Mmap>,
+    fst_map: Option<fst::Map<Mmap>>,
+    num_words: u32,
+    num_bigrams: u32,
+    string_pool_size: u32,
     total_unigram_count: u64,
 }
 
 impl WordBigram {
-    /// Create an empty word bigram model
-    pub fn new() -> Self {
+    /// Create an empty word bigram (no data).
+    pub fn empty() -> Self {
         Self {
-            data: HashMap::new(),
-            totals: HashMap::new(),
-            unigram_counts: HashMap::new(),
+            data_mmap: None,
+            fst_map: None,
+            num_words: 0,
+            num_bigrams: 0,
+            string_pool_size: 0,
             total_unigram_count: 0,
         }
     }
 
-    /// Get the probability P(word2 | word1)
-    /// Returns 0.0 if the bigram doesn't exist
+    /// Load from word_bigram.dat + word_bigram_words.fst
+    pub fn load(dat_path: &Path, fst_path: &Path) -> Result<Self, String> {
+        let dat_file =
+            std::fs::File::open(dat_path).map_err(|e| format!("open {:?}: {}", dat_path, e))?;
+        let fst_file =
+            std::fs::File::open(fst_path).map_err(|e| format!("open {:?}: {}", fst_path, e))?;
+
+        let data_mmap = unsafe { Mmap::map(&dat_file) }.map_err(|e| format!("mmap dat: {}", e))?;
+        let fst_mmap = unsafe { Mmap::map(&fst_file) }.map_err(|e| format!("mmap fst: {}", e))?;
+
+        if data_mmap.len() < WBGR_HEADER_SIZE {
+            return Err("word_bigram.dat too small".into());
+        }
+        if &data_mmap[0..4] != WBGR_MAGIC {
+            return Err("word_bigram.dat: bad magic".into());
+        }
+        let version = u32::from_le_bytes(data_mmap[4..8].try_into().unwrap());
+        if version != WBGR_VERSION {
+            return Err(format!("word_bigram.dat: unsupported version {}", version));
+        }
+
+        let num_words = u32::from_le_bytes(data_mmap[8..12].try_into().unwrap());
+        let num_bigrams = u32::from_le_bytes(data_mmap[12..16].try_into().unwrap());
+        let string_pool_size = u32::from_le_bytes(data_mmap[16..20].try_into().unwrap());
+        let total_unigram_count = u64::from_le_bytes(data_mmap[20..28].try_into().unwrap());
+
+        let expected_size = WBGR_HEADER_SIZE
+            + (num_words as usize) * 4
+            + string_pool_size as usize
+            + (num_words as usize + 1) * 4
+            + (num_words as usize) * 4
+            + (num_bigrams as usize) * 6;
+        if data_mmap.len() < expected_size {
+            return Err(format!(
+                "word_bigram.dat: expected {} bytes, got {}",
+                expected_size,
+                data_mmap.len()
+            ));
+        }
+
+        let fst_map = fst::Map::new(fst_mmap).map_err(|e| format!("fst parse: {}", e))?;
+
+        Ok(Self {
+            data_mmap: Some(data_mmap),
+            fst_map: Some(fst_map),
+            num_words,
+            num_bigrams,
+            string_pool_size,
+            total_unigram_count,
+        })
+    }
+
+    #[inline]
+    fn data(&self) -> &[u8] {
+        self.data_mmap.as_ref().unwrap()
+    }
+
+    #[inline]
+    fn string_offsets(&self) -> &[u8] {
+        let start = WBGR_HEADER_SIZE;
+        let end = start + (self.num_words as usize) * 4;
+        &self.data()[start..end]
+    }
+
+    #[inline]
+    fn string_pool(&self) -> &[u8] {
+        let start = WBGR_HEADER_SIZE + (self.num_words as usize) * 4;
+        let end = start + self.string_pool_size as usize;
+        &self.data()[start..end]
+    }
+
+    #[inline]
+    fn bigram_offsets(&self) -> &[u8] {
+        let start =
+            WBGR_HEADER_SIZE + (self.num_words as usize) * 4 + self.string_pool_size as usize;
+        let end = start + (self.num_words as usize + 1) * 4;
+        &self.data()[start..end]
+    }
+
+    #[inline]
+    fn totals(&self) -> &[u8] {
+        let start = WBGR_HEADER_SIZE
+            + (self.num_words as usize) * 4
+            + self.string_pool_size as usize
+            + (self.num_words as usize + 1) * 4;
+        let end = start + (self.num_words as usize) * 4;
+        &self.data()[start..end]
+    }
+
+    #[inline]
+    fn bigram_data(&self) -> &[u8] {
+        let start = WBGR_HEADER_SIZE
+            + (self.num_words as usize) * 4
+            + self.string_pool_size as usize
+            + (self.num_words as usize + 1) * 4
+            + (self.num_words as usize) * 4;
+        let end = start + (self.num_bigrams as usize) * 6;
+        &self.data()[start..end]
+    }
+
+    #[inline]
+    fn get_string_offset(&self, id: u16) -> u32 {
+        let off = (id as usize) * 4;
+        u32::from_le_bytes(self.string_offsets()[off..off + 4].try_into().unwrap())
+    }
+
+    /// Get word string for a given id (zero-copy into mmap).
+    pub fn id_to_word(&self, id: u16) -> &str {
+        let pool = self.string_pool();
+        let offset = self.get_string_offset(id) as usize;
+        let len = u16::from_le_bytes(pool[offset..offset + 2].try_into().unwrap()) as usize;
+        std::str::from_utf8(&pool[offset + 2..offset + 2 + len]).unwrap_or("")
+    }
+
+    #[inline]
+    fn lookup_word(&self, word: &str) -> Option<(u16, u32)> {
+        self.fst_map.as_ref()?.get(word).map(|packed| {
+            let id = (packed >> 32) as u16;
+            let unigram_count = packed as u32;
+            (id, unigram_count)
+        })
+    }
+
+    #[inline]
+    fn lookup_id(&self, word: &str) -> Option<u16> {
+        self.lookup_word(word).map(|(id, _)| id)
+    }
+
+    #[inline]
+    fn get_bigram_offset(&self, id: u16) -> u32 {
+        let off = (id as usize) * 4;
+        u32::from_le_bytes(self.bigram_offsets()[off..off + 4].try_into().unwrap())
+    }
+
+    #[inline]
+    fn get_total(&self, id: u16) -> u32 {
+        let off = (id as usize) * 4;
+        u32::from_le_bytes(self.totals()[off..off + 4].try_into().unwrap())
+    }
+
+    #[inline]
+    fn get_unigram_count(&self, word: &str) -> u32 {
+        self.lookup_word(word).map(|(_, c)| c).unwrap_or(0)
+    }
+
+    fn bigrams_for(&self, word1_id: u16) -> BigramIter<'_> {
+        let start = self.get_bigram_offset(word1_id) as usize;
+        let end = self.get_bigram_offset(word1_id + 1) as usize;
+        let data = self.bigram_data();
+        BigramIter {
+            data: &data[start * 6..end * 6],
+            pos: 0,
+        }
+    }
+
+    /// Get probability P(word2 | word1).
     pub fn get_probability(&self, word1: &str, word2: &str) -> f32 {
-        if let Some(entries) = self.data.get(word1) {
-            if let Some(entry) = entries.iter().find(|e| e.word == word2) {
-                if let Some(&total) = self.totals.get(word1) {
-                    if total > 0 {
-                        return entry.count as f32 / total as f32;
-                    }
-                }
+        let id1 = match self.lookup_id(word1) {
+            Some(id) => id,
+            None => return 0.0,
+        };
+        let id2 = match self.lookup_id(word2) {
+            Some(id) => id,
+            None => return 0.0,
+        };
+        let total = self.get_total(id1);
+        if total == 0 {
+            return 0.0;
+        }
+        for (wid, count) in self.bigrams_for(id1) {
+            if wid == id2 {
+                return count as f32 / total as f32;
             }
         }
         0.0
     }
 
-    /// Get log probability (natural log)
-    /// Returns a large negative number if bigram doesn't exist
-    pub fn get_log_probability(&self, word1: &str, word2: &str) -> f32 {
-        let prob = self.get_probability(word1, word2);
-        if prob > 0.0 {
-            prob.ln()
-        } else {
-            -20.0 // Default for missing bigrams (matches character n-gram behavior)
-        }
-    }
-
-    /// Add a bigram observation
-    pub fn add_bigram(&mut self, word1: String, word2: String, count: u32) {
-        let entry = BigramEntry { word: word2, count };
-
-        self.data
-            .entry(word1.clone())
-            .or_default()
-            .push(entry);
-
-        *self.totals.entry(word1).or_insert(0) += count;
-    }
-
-    /// Add a unigram observation from interpolation2.text
-    pub fn add_unigram(&mut self, word: String, count: u32) {
-        *self.unigram_counts.entry(word).or_insert(0) += count;
-        self.total_unigram_count += count as u64;
-    }
-
-    /// Get unigram probability P(word) from interpolation2.text data
-    /// Returns 0.0 if word not found
+    /// Get unigram probability P(word).
     pub fn get_unigram_probability(&self, word: &str) -> f32 {
-        if let Some(&count) = self.unigram_counts.get(word) {
-            if self.total_unigram_count > 0 {
-                return (count as f64 / self.total_unigram_count as f64) as f32;
-            }
+        if self.total_unigram_count == 0 {
+            return 0.0;
         }
-        0.0
+        let count = self.get_unigram_count(word);
+        if count == 0 {
+            return 0.0;
+        }
+        (count as f64 / self.total_unigram_count as f64) as f32
     }
 
-    /// Get log unigram probability
-    pub fn get_log_unigram_probability(&self, word: &str) -> f32 {
-        let prob = self.get_unigram_probability(word);
-        if prob > 0.0 {
-            prob.ln()
-        } else {
-            -20.0 // Default for missing unigrams
-        }
-    }
-
-    /// Get top N predictions after word1 based on bigram probabilities
-    /// Returns Vec<(word2, score)> sorted by score (descending)
+    /// Get top N predictions after word1.
     pub fn get_predictions(&self, word1: &str, lambda: f32, top_n: usize) -> Vec<(String, f32)> {
-        if let Some(entries) = self.data.get(word1) {
-            let mut predictions: Vec<(String, f32)> = entries
-                .iter()
-                .map(|entry| {
-                    // Use interpolation formula: λ * P(w2|w1) + (1-λ) * P(w2)
-                    let bigram_prob = self.get_probability(word1, &entry.word);
-                    let unigram_prob = self.get_unigram_probability(&entry.word);
-                    let interpolated = lambda * bigram_prob + (1.0 - lambda) * unigram_prob;
-                    let score = interpolated.ln();
-                    (entry.word.clone(), score)
-                })
-                .collect();
-            
-            // Sort by score (descending)
-            predictions.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-            
-            // Return top N
-            predictions.truncate(top_n);
-            predictions
-        } else {
-            Vec::new()
+        let id1 = match self.lookup_id(word1) {
+            Some(id) => id,
+            None => return Vec::new(),
+        };
+        let total = self.get_total(id1);
+        if total == 0 {
+            return Vec::new();
         }
+
+        let mut predictions: Vec<(String, f32)> = self
+            .bigrams_for(id1)
+            .map(|(id2, count)| {
+                let bigram_prob = count as f32 / total as f32;
+                let unigram_count = self
+                    .lookup_word(self.id_to_word(id2))
+                    .map(|(_, c)| c)
+                    .unwrap_or(0);
+                let unigram_prob = if self.total_unigram_count > 0 {
+                    (unigram_count as f64 / self.total_unigram_count as f64) as f32
+                } else {
+                    0.0
+                };
+                let interpolated = lambda * bigram_prob + (1.0 - lambda) * unigram_prob;
+                let score = interpolated.ln();
+                (self.id_to_word(id2).to_string(), score)
+            })
+            .collect();
+
+        predictions.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        predictions.truncate(top_n);
+        predictions
     }
 
-    /// Load from bincode file
-    pub fn load<P: AsRef<Path>>(path: P) -> Result<Self, Box<dyn std::error::Error>> {
-        let file = File::open(path)?;
-        let reader = BufReader::new(file);
-        let model = bincode::deserialize_from(reader)?;
-        Ok(model)
+    pub fn num_words(&self) -> usize {
+        self.num_words as usize
     }
 
-    /// Save to bincode file
-    pub fn save<P: AsRef<Path>>(&self, path: P) -> Result<(), Box<dyn std::error::Error>> {
-        let file = File::create(path)?;
-        let writer = BufWriter::new(file);
-        bincode::serialize_into(writer, self)?;
-        Ok(())
-    }
-
-    /// Get number of unique word1 entries
-    pub fn len(&self) -> usize {
-        self.data.len()
-    }
-
-    /// Check if empty
-    pub fn is_empty(&self) -> bool {
-        self.data.is_empty()
-    }
-
-    /// Get total number of bigram pairs
     pub fn total_bigrams(&self) -> usize {
-        self.data.values().map(|v| v.len()).sum()
+        self.num_bigrams as usize
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.num_bigrams == 0
     }
 }
 
-impl Default for WordBigram {
-    fn default() -> Self {
-        Self::new()
-    }
+struct BigramIter<'a> {
+    data: &'a [u8],
+    pos: usize,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+impl<'a> Iterator for BigramIter<'a> {
+    type Item = (u16, u32);
 
-    #[test]
-    fn test_word_bigram_probability() {
-        let mut wb = WordBigram::new();
-        wb.add_bigram("今天".to_string(), "上海".to_string(), 10);
-        wb.add_bigram("今天".to_string(), "很好".to_string(), 5);
-
-        // P("上海" | "今天") = 10 / 15 = 0.666...
-        let prob = wb.get_probability("今天", "上海");
-        assert!((prob - 0.666).abs() < 0.01);
-
-        // P("很好" | "今天") = 5 / 15 = 0.333...
-        let prob = wb.get_probability("今天", "很好");
-        assert!((prob - 0.333).abs() < 0.01);
-
-        // Missing bigram
-        let prob = wb.get_probability("今天", "不存在");
-        assert_eq!(prob, 0.0);
-    }
-
-    #[test]
-    fn test_word_bigram_log_probability() {
-        let mut wb = WordBigram::new();
-        wb.add_bigram("你好".to_string(), "世界".to_string(), 100);
-
-        let log_prob = wb.get_log_probability("你好", "世界");
-        assert!(log_prob == 0.0); // ln(1.0) = 0 since 100/100 = 1.0
-
-        let log_prob = wb.get_log_probability("不存在", "也不存在");
-        assert_eq!(log_prob, -20.0);
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.pos + 6 > self.data.len() {
+            return None;
+        }
+        let word2_id = u16::from_le_bytes(self.data[self.pos..self.pos + 2].try_into().unwrap());
+        let count = u32::from_le_bytes(self.data[self.pos + 2..self.pos + 6].try_into().unwrap());
+        self.pos += 6;
+        Some((word2_id, count))
     }
 }

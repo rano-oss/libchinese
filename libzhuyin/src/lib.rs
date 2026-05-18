@@ -16,8 +16,9 @@ pub use libchinese_core::{
 
 pub use config::ZhuyinConfig;
 pub use engine::{
-    create_ime_engine_eten, create_ime_engine_hsu, create_ime_engine_standard, Engine,
-    ZHUYIN_SYLLABLES,
+    create_ime_engine_eten, create_ime_engine_eten_with_userdict, create_ime_engine_hsu,
+    create_ime_engine_hsu_with_userdict, create_ime_engine_standard,
+    create_ime_engine_standard_with_userdict, Engine, ZHUYIN_SYLLABLES,
 };
 pub use fuzzy_presets::{eten_fuzzy_rules, hsu_fuzzy_rules, no_fuzzy_rules, standard_fuzzy_rules};
 pub use parser::ZhuyinParser;

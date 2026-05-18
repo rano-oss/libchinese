@@ -3,9 +3,8 @@ members = [
     "core",
     "libpinyin",
     "libzhuyin",
+    "tools/tools-common",
     "tools/convert_table",
-    "tools/inspect_converted",
-    "tools/show_lexicon_entry",
-    "tools/gen_word_bigrams"
+    "tools/gen_word_bigrams",
 ]
 resolver = "2"

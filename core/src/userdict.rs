@@ -9,7 +9,7 @@ use redb::{Database, ReadableTable, TableDefinition};
 /// UserDict backed by `redb`.
 #[derive(Clone, Debug)]
 pub struct UserDict {
-    db: Arc<Database>
+    db: Arc<Database>,
 }
 
 impl UserDict {
@@ -19,9 +19,7 @@ impl UserDict {
             let _ = std::fs::create_dir_all(dir);
         }
         let db = Database::create(path.as_ref())?;
-        Ok(UserDict {
-            db: Arc::new(db)
-        })
+        Ok(UserDict { db: Arc::new(db) })
     }
 
     fn table_def() -> TableDefinition<'static, &'static str, u64> {

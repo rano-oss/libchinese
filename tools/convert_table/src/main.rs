@@ -1,29 +1,24 @@
+//! Converts raw .table files directly to mmap-ready runtime format.
+//!
+//! Output files (per variant directory):
+//!   - lexicon.fst (FST mapping keys to monotonic indices)
+//!   - lexicon.dat (flat binary payloads, LXPD format)
+//!
+//! Variants built:
+//!   - simplified: gb_char + merged + opengram + punct tables (pinyin keys)
+//!   - traditional: tsi.table with zhuyin keys converted to pinyin
+//!   - zhuyin_traditional: tsi.table with raw zhuyin keys
+//!   - emoji: emoji.table (pinyin keywords)
+
 use anyhow::Result;
 use fst::MapBuilder;
-use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs::{create_dir_all, File};
 use std::io::{BufRead, BufReader};
 use std::path::Path;
-
-#[derive(Serialize, Deserialize, Debug)]
-struct LexEntry {
-    utf8: String,
-    token: u32,
-    freq: u32,
-}
-impl Clone for LexEntry {
-    fn clone(&self) -> Self {
-        Self {
-            utf8: self.utf8.clone(),
-            token: self.token,
-            freq: self.freq,
-        }
-    }
-}
+use tools_common::LexEntry;
 
 fn parse_table_line(line: &str) -> Option<(String, String, u32, u32)> {
-    // expected: key\tchars\ttoken\tfreq
     let parts: Vec<&str> = line.split('\t').collect();
     if parts.len() < 4 {
         return None;
@@ -35,12 +30,11 @@ fn parse_table_line(line: &str) -> Option<(String, String, u32, u32)> {
     Some((key, chars, token, freq))
 }
 
-fn build_fst_and_bincode<P: AsRef<Path>>(
+fn build_lexicon<P: AsRef<Path>>(
     table_paths: &[(&str, P)],
-    out_prefix: &Path,
+    out_dir: &Path,
     key_type: &str,
 ) -> Result<()> {
-    // Collect entries into a map keyed by pinyin/zhuyin key -> Vec<LexEntry>
     let mut grouped: BTreeMap<String, Vec<LexEntry>> = BTreeMap::new();
 
     for (name, path) in table_paths.iter() {
@@ -52,27 +46,18 @@ fn build_fst_and_bincode<P: AsRef<Path>>(
                 continue;
             }
             if let Some((key, chars, token, freq)) = parse_table_line(&l) {
-                // Determine the actual key based on key_type parameter:
-                // - "pinyin": convert zhuyin keys to toneless pinyin
-                // - "zhuyin": keep original zhuyin/bopomofo keys
-                // - "original": keep keys as-is (for non-tsi tables)
                 let actual_key = if name == &"tsi" {
                     match key_type {
                         "pinyin" => {
-                            // normalize each syllable produced by conversion
                             let raw = convert_zhuyin_key_to_pinyin(&key);
                             let parts: Vec<String> =
                                 raw.split('\'').map(normalize_pinyin_syllable).collect();
                             parts.join("'")
                         }
-                        "zhuyin" => {
-                            // Keep original bopomofo/zhuyin key WITH tone marks
-                            key.clone()
-                        }
+                        "zhuyin" => key.clone(),
                         _ => key.clone(),
                     }
                 } else {
-                    // pinyin data already
                     key.clone()
                 };
                 grouped.entry(actual_key).or_default().push(LexEntry {
@@ -84,43 +69,64 @@ fn build_fst_and_bincode<P: AsRef<Path>>(
         }
     }
 
-    // Build FST map where each key maps to a monotonically increasing u64 index
-    let fst_path = out_prefix.join("lexicon.fst");
-    let bin_path = out_prefix.join("lexicon.bincode");
-    create_dir_all(out_prefix)?;
+    create_dir_all(out_dir)?;
+
+    // Build FST
+    let fst_path = out_dir.join("lexicon.fst");
     let mut w = File::create(&fst_path)?;
     let mut map_builder = MapBuilder::new(&mut w)?;
 
-    // We'll also collect entries (key + payload) so we can build ngrams from keys when requested
-    let mut entries: Vec<(String, Vec<LexEntry>)> = Vec::new();
+    let mut payloads: Vec<&Vec<LexEntry>> = Vec::with_capacity(grouped.len());
 
-    for (i, (k, v)) in grouped.into_iter().enumerate() {
-        map_builder.insert(&k, i as u64)?;
-        entries.push((k, v));
+    for (i, (k, v)) in grouped.iter().enumerate() {
+        map_builder.insert(k, i as u64)?;
+        payloads.push(v);
     }
-    // payloads vector is the serialized lists in the same order
-    let payloads: Vec<Vec<LexEntry>> = entries.iter().map(|(_, v)| v.clone()).collect();
     map_builder.finish()?;
 
-    // write bincode vector (lexicon payloads)
-    let mut binf = File::create(&bin_path)?;
-    bincode::serialize_into(&mut binf, &payloads)?;
+    // Build lexicon.dat directly (LXPD format)
+    let num_keys = payloads.len() as u32;
+    let mut key_offsets: Vec<u32> = Vec::with_capacity(payloads.len() + 1);
+    let mut entries_data: Vec<u8> = Vec::new();
+
+    for entries in &payloads {
+        key_offsets.push(entries_data.len() as u32);
+        for entry in entries.iter() {
+            let bytes = entry.utf8.as_bytes();
+            entries_data.extend_from_slice(&(bytes.len() as u16).to_le_bytes());
+            entries_data.extend_from_slice(bytes);
+            entries_data.extend_from_slice(&entry.freq.to_le_bytes());
+        }
+    }
+    key_offsets.push(entries_data.len() as u32);
+
+    let dat_path = out_dir.join("lexicon.dat");
+    tools_common::mmap_write::write_lexicon_dat(&dat_path, num_keys, &key_offsets, &entries_data)?;
+
+    println!(
+        "  {} keys -> {} + {}",
+        num_keys,
+        fst_path.display(),
+        dat_path.display()
+    );
 
     Ok(())
 }
 
-// Strip zhuyin tone marks and diacritics: ˊ ˇ ˋ ˙ and combining variants
+// === Zhuyin -> Pinyin conversion ===
+
 fn strip_zhuyin_tone(s: &str) -> String {
     s.chars()
-        .filter(|c| match *c {
-            '\u{02CA}' | '\u{02C7}' | '\u{02CB}' | '\u{02D9}' | '\u{0304}' => false,
-            _ => true,
+        .filter(|c| {
+            !matches!(
+                *c,
+                '\u{02CA}' | '\u{02C7}' | '\u{02CB}' | '\u{02D9}' | '\u{0304}'
+            )
         })
         .collect()
 }
 
 fn zhuyin_char_to_pinyin_fragment(ch: char) -> Option<&'static str> {
-    // mapping table for individual bopomofo chars to pinyin fragments
     match ch {
         'ㄅ' => Some("b"),
         'ㄆ' => Some("p"),
@@ -143,7 +149,6 @@ fn zhuyin_char_to_pinyin_fragment(ch: char) -> Option<&'static str> {
         'ㄗ' => Some("z"),
         'ㄘ' => Some("c"),
         'ㄙ' => Some("s"),
-        // finals & medial
         'ㄧ' => Some("i"),
         'ㄨ' => Some("u"),
         'ㄩ' => Some("v"),
@@ -160,15 +165,12 @@ fn zhuyin_char_to_pinyin_fragment(ch: char) -> Option<&'static str> {
         'ㄤ' => Some("ang"),
         'ㄥ' => Some("eng"),
         'ㄦ' => Some("er"),
-        // tonal marks and variation chars are filtered earlier
         _ => None,
     }
 }
 
 fn convert_zhuyin_syllable_to_pinyin(syll: &str) -> String {
-    // strip tone marks
     let cleaned = strip_zhuyin_tone(syll);
-    // build by mapping each zhuyin char
     let mut out = String::new();
     for ch in cleaned.chars() {
         if let Some(frag) = zhuyin_char_to_pinyin_fragment(ch) {
@@ -176,11 +178,8 @@ fn convert_zhuyin_syllable_to_pinyin(syll: &str) -> String {
         }
     }
 
-    // Normalization rules for syllables starting with i/u/v
-    // If starts with i + vowel -> replace leading i with y (e.g., ia -> ya, iou -> you)
     if out.starts_with('i') && out.len() >= 2 {
         let rest = &out[1..];
-        // Only convert when rest starts with a vowel
         if rest.starts_with('a')
             || rest.starts_with('o')
             || rest.starts_with('e')
@@ -190,7 +189,6 @@ fn convert_zhuyin_syllable_to_pinyin(syll: &str) -> String {
             out = format!("y{}", rest);
         }
     }
-    // If starts with u + vowel -> w prefix
     if out.starts_with('u') && out.len() >= 2 {
         let rest = &out[1..];
         if rest.starts_with('a')
@@ -201,7 +199,6 @@ fn convert_zhuyin_syllable_to_pinyin(syll: &str) -> String {
             out = format!("w{}", rest);
         }
     }
-    // If starts with v (we used v for ü), convert to yu or just u-like handling
     if out.starts_with('v') {
         let rest = &out[1..];
         out = format!("yu{}", rest);
@@ -211,7 +208,6 @@ fn convert_zhuyin_syllable_to_pinyin(syll: &str) -> String {
 }
 
 fn convert_zhuyin_key_to_pinyin(key: &str) -> String {
-    // split on apostrophe markers ' (U+0027) and also support U+2019?
     let parts: Vec<&str> = key.split('\'').collect();
     let mut out_parts: Vec<String> = Vec::new();
     for p in parts.iter() {
@@ -225,8 +221,6 @@ fn convert_zhuyin_key_to_pinyin(key: &str) -> String {
 }
 
 fn normalize_pinyin_syllable(s: &str) -> String {
-    // small set of normalization rules to map common outputs into canonical forms
-    // e.g., 'yue' vs 'ue' boundaries, 'yu' handling already, 'iou' -> 'iu'
     let mut s = s.to_string();
     if s == "iou" {
         s = "iu".to_string();
@@ -237,62 +231,47 @@ fn normalize_pinyin_syllable(s: &str) -> String {
     if s == "uen" {
         s = "un".to_string();
     }
-    if s.starts_with("y") && s.len() > 1 {
-        // y + vowel -> leave as-is
-    }
-    if s.starts_with("w") && s.len() > 1 {
-        // w + vowel -> leave
-    }
     s
 }
 
 fn main() -> Result<()> {
-    // Hardcoded paths (project-relative)
-    // repo-root relative paths (run from repository root)
     let data_dir = Path::new("data");
     let zhuyin_dir = Path::new("data/zhuyin");
     let out_dir = Path::new("data/converted");
 
-    // Cases:
-    // 1) simplified pinyin: gb_char.table + merged.table + opengram.table + punct.table
+    // 1) Simplified pinyin
     let simplified_tables = [
         ("gb_char", data_dir.join("gb_char.table")),
         ("merged", data_dir.join("merged.table")),
         ("opengram", data_dir.join("opengram.table")),
         ("punct", data_dir.join("punct.table")),
     ];
+    println!("Building simplified lexicon...");
+    build_lexicon(&simplified_tables, &out_dir.join("simplified"), "original")?;
 
-    // 2) traditional pinyin: use tsi.table (converted via zhuyin to pinyin mapping later)
+    // 2) Traditional pinyin (zhuyin keys -> pinyin)
     let traditional_tables = [("tsi", zhuyin_dir.join("tsi.table"))];
+    println!("Building traditional lexicon...");
+    build_lexicon(&traditional_tables, &out_dir.join("traditional"), "pinyin")?;
 
-    // 3) zhuyin traditional: use tsi.table only
+    // 3) Zhuyin traditional (raw zhuyin keys)
     let zhuyin_tables = [("tsi", zhuyin_dir.join("tsi.table"))];
-
-    // 4) emoji: emoji.table (pinyin keywords)
-    let emoji_tables = [("emoji", data_dir.join("emoji.table"))];
-
-    // Build simplified (pinyin syllable tokenization)
-    build_fst_and_bincode(&simplified_tables, &out_dir.join("simplified"), "original")?;
-
-    // Build traditional (pinyin syllable tokenization, convert zhuyin keys to pinyin)
-    build_fst_and_bincode(&traditional_tables, &out_dir.join("traditional"), "pinyin")?;
-
-    // Build zhuyin (character tokenization, keep zhuyin/bopomofo keys)
-    build_fst_and_bincode(
+    println!("Building zhuyin_traditional lexicon...");
+    build_lexicon(
         &zhuyin_tables,
         &out_dir.join("zhuyin_traditional"),
         "zhuyin",
     )?;
 
-    // Build emoji (pinyin syllable tokenization, original keys)
+    // 4) Emoji
     if data_dir.join("emoji.table").exists() {
+        let emoji_tables = [("emoji", data_dir.join("emoji.table"))];
         println!("Building emoji lexicon...");
-        build_fst_and_bincode(&emoji_tables, &out_dir.join("emoji"), "original")?;
+        build_lexicon(&emoji_tables, &out_dir.join("emoji"), "original")?;
     } else {
         println!("Skipping emoji (emoji.table not found)");
     }
 
-    // No global placeholders here; each dataset has its own ngram/interp artifacts.
-
+    println!("\nDone!");
     Ok(())
 }

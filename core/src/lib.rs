@@ -4,21 +4,20 @@
 //! shared by language-specific crates (libpinyin, libzhuyin).
 //!
 //! This crate provides production-ready implementations using FST for lexicons,
-//! bincode for serialization, and redb for user dictionaries only.
+//! memory-mapped files for zero-copy access, and redb for user dictionaries.
 //!
 //! Public API:
 //! - `Candidate` - Scored text candidate with metadata
 //! - `Model` - Complete language model combining all components
-//! - `Lexicon` - Pinyin/Zhuyin → Hanzi dictionary lookup
+//! - `Lexicon` - Memory-mapped pinyin/zhuyin → hanzi dictionary lookup
 //! - `UserDict` - Persistent user learning and frequency adaptation
 //! - `Config` - Configuration and feature flags
-use fst::Map;
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
-use std::collections::HashMap as AHashMap;
-use std::fs::File;
-use std::io::Read;
 use std::sync::Arc;
+
+pub mod lexicon;
+pub use lexicon::Lexicon;
 
 pub mod word_bigram;
 pub use word_bigram::WordBigram;
@@ -156,35 +155,6 @@ impl Default for Config {
 }
 
 impl Config {
-    /// Load configuration from a TOML file.
-    pub fn load_toml<P: AsRef<std::path::Path>>(
-        path: P,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
-        let content = std::fs::read_to_string(path)?;
-        let config: Config = toml::from_str(&content)?;
-        Ok(config)
-    }
-
-    /// Save configuration to a TOML file.
-    pub fn save_toml<P: AsRef<std::path::Path>>(
-        &self,
-        path: P,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let content = toml::to_string_pretty(self)?;
-        std::fs::write(path, content)?;
-        Ok(())
-    }
-
-    /// Load configuration from TOML string.
-    pub fn from_toml_str(content: &str) -> Result<Self, toml::de::Error> {
-        toml::from_str(content)
-    }
-
-    /// Serialize configuration to TOML string.
-    pub fn to_toml_string(&self) -> Result<String, toml::ser::Error> {
-        toml::to_string_pretty(self)
-    }
-
     // ========== Full/Half Width Management ==========
 
     /// Toggle full-width mode on/off.
@@ -257,269 +227,22 @@ impl Config {
     pub fn selection_key_index(&self, ch: char) -> Option<usize> {
         self.select_keys.chars().position(|c| c == ch)
     }
-
-    // ========== Parser Penalty Configuration ==========
-
-    /// Set the correction penalty (ue/ve, v/u, keyboard shuffles).
-    /// Lower values make corrections more likely to be selected.
-    /// Default: 200
-    pub fn set_correction_penalty(&mut self, penalty: i32) {
-        self.correction_penalty = penalty;
-    }
-
-    /// Get the current correction penalty.
-    pub fn get_correction_penalty(&self) -> i32 {
-        self.correction_penalty
-    }
-
-    /// Set the fuzzy penalty multiplier (z/zh, c/ch, s/sh, etc.).
-    /// This is multiplied by the rule's weight from the fuzzy map.
-    /// Default: 100
-    pub fn set_fuzzy_penalty_multiplier(&mut self, multiplier: i32) {
-        self.fuzzy_penalty_multiplier = multiplier;
-    }
-
-    /// Get the current fuzzy penalty multiplier.
-    pub fn get_fuzzy_penalty_multiplier(&self) -> i32 {
-        self.fuzzy_penalty_multiplier
-    }
-
-    /// Set the incomplete penalty (partial input like "n" → "ni").
-    /// Only applies to pinyin parser with allow_fuzzy enabled.
-    /// Default: 500
-    pub fn set_incomplete_penalty(&mut self, penalty: i32) {
-        self.incomplete_penalty = penalty;
-    }
-
-    /// Get the current incomplete penalty.
-    pub fn get_incomplete_penalty(&self) -> i32 {
-        self.incomplete_penalty
-    }
-
-    /// Set the unknown character penalty.
-    /// Very high to strongly discourage non-phonetic input.
-    /// Default: 1000
-    pub fn set_unknown_penalty(&mut self, penalty: i32) {
-        self.unknown_penalty = penalty;
-    }
-
-    /// Get the current unknown character penalty.
-    pub fn get_unknown_penalty(&self) -> i32 {
-        self.unknown_penalty
-    }
-
-    /// Set the unknown segment cost penalty.
-    /// Added to segment cost for unrecognized characters.
-    /// Default: 10.0
-    pub fn set_unknown_cost(&mut self, cost: f32) {
-        self.unknown_cost = cost;
-    }
-
-    /// Get the current unknown segment cost.
-    pub fn get_unknown_cost(&self) -> f32 {
-        self.unknown_cost
-    }
 }
 
 /// Utility helpers.
 pub mod utils {
-    /// Normalize input strings (NFC) and trim whitespace.
-    pub fn normalize(s: &str) -> String {
-        use unicode_normalization::UnicodeNormalization;
-        s.nfc().collect::<String>().trim().to_string()
-    }
-
     /// Convert ASCII characters to full-width equivalents.
-    ///
-    /// This converts:
-    /// - ASCII letters (A-Z, a-z) → Full-width letters (Ａ-Ｚ, ａ-ｚ)
-    /// - ASCII digits (0-9) → Full-width digits (０-９)
-    /// - ASCII space → Ideographic space (　)
-    /// - ASCII punctuation → Full-width punctuation
-    ///
-    /// Non-ASCII characters are passed through unchanged.
     pub fn to_fullwidth(s: &str) -> String {
         s.chars()
             .map(|ch| match ch {
-                // Space -> Ideographic space
                 ' ' => '\u{3000}',
-                // ASCII printable range (0x21-0x7E) -> Full-width (0xFF01-0xFF5E)
                 '!'..='~' => {
                     let code = ch as u32;
                     char::from_u32(code - 0x21 + 0xFF01).unwrap_or(ch)
                 }
-                // Pass through non-ASCII
                 _ => ch,
             })
             .collect()
-    }
-
-    /// Convert full-width characters back to ASCII (half-width).
-    pub fn to_halfwidth(s: &str) -> String {
-        s.chars()
-            .map(|ch| match ch {
-                // Ideographic space -> ASCII space
-                '\u{3000}' => ' ',
-                // Full-width range (0xFF01-0xFF5E) -> ASCII (0x21-0x7E)
-                '\u{FF01}'..='\u{FF5E}' => {
-                    let code = ch as u32;
-                    char::from_u32(code - 0xFF01 + 0x21).unwrap_or(ch)
-                }
-                // Pass through non-full-width
-                _ => ch,
-            })
-            .collect()
-    }
-}
-
-/// Lexicon entry matching convert_table output format
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub(crate) struct LexEntry {
-    pub utf8: String,
-    pub token: u32,
-    pub freq: u32,
-}
-
-/// Lookups map a pinyin-sequence key (e.g. "nihao") to a list of Chinese
-/// phrases. Uses FST for key indexing and bincode for payload storage.
-#[derive(Debug, Clone, Default)]
-pub struct Lexicon {
-    // In-memory map for dynamic entries
-    map: AHashMap<String, Vec<String>>,
-    // FST map for key -> index lookups
-    fst_map: Option<Map<Vec<u8>>>,
-    // Bincode-serialized payload vector (index -> Vec<LexEntry>)
-    payloads: Option<Vec<Vec<LexEntry>>>,
-}
-
-impl Lexicon {
-    pub fn new() -> Self {
-        Self {
-            map: AHashMap::new(),
-            fst_map: None,
-            payloads: None,
-        }
-    }
-
-    /// Insert a mapping from pinyin key to phrase.
-    pub fn insert<K: Into<String>, V: Into<String>>(&mut self, key: K, phrase: V) {
-        let key = key.into();
-        let phrase = phrase.into();
-        self.map.entry(key).or_default().push(phrase);
-    }
-
-    /// Lookup candidates for a given pinyin key.
-    pub fn lookup(&self, key: &str) -> Vec<String> {
-        // Prefer in-memory map entries
-        if let Some(v) = self.map.get(key) {
-            return v.clone();
-        }
-
-        // FST + bincode lookup
-        if let (Some(map), Some(payloads)) = (&self.fst_map, &self.payloads) {
-            if let Some(idx) = map.get(key) {
-                let index = idx as usize;
-                if let Some(entries) = payloads.get(index) {
-                    return entries.iter().map(|e| e.utf8.clone()).collect();
-                }
-            }
-        }
-
-        Vec::new()
-    }
-
-    /// Lookup that also returns the lexicon frequency for each phrase (if available).
-    ///
-    /// For in-memory `map` entries the frequency is unknown (0). For FST/bincode
-    /// entries the stored `LexEntry.freq` is returned.
-    pub fn lookup_with_freq(&self, key: &str) -> Vec<(String, u32)> {
-        // Prefer in-memory map entries
-        if let Some(v) = self.map.get(key) {
-            return v.iter().cloned().map(|s| (s, 0)).collect();
-        }
-
-        // FST + bincode lookup
-        if let (Some(map), Some(payloads)) = (&self.fst_map, &self.payloads) {
-            if let Some(idx) = map.get(key) {
-                let index = idx as usize;
-                if let Some(entries) = payloads.get(index) {
-                    return entries.iter().map(|e| (e.utf8.clone(), e.freq)).collect();
-                }
-            }
-        }
-
-        Vec::new()
-    }
-
-    /// Cheap existence check for a key.
-    ///
-    /// Returns true if the key exists either in the in-memory `map` or in the
-    /// FST index. This avoids deserializing payloads when only existence is
-    /// required.
-    pub fn has_key(&self, key: &str) -> bool {
-        // Check dynamic in-memory entries first
-        if self.map.contains_key(key) {
-            return true;
-        }
-
-        // Check FST index without touching payloads
-        if let Some(map) = &self.fst_map {
-            return map.get(key).is_some();
-        }
-
-        false
-    }
-
-    /// Compute total frequency of all lexicon entries (for unigram probability normalization).
-    ///
-    /// This sums up all frequencies from all payloads. The result is cached in Model.
-    pub fn compute_total_frequency(&self) -> u64 {
-        let mut total: u64 = 0;
-
-        if let Some(payloads) = &self.payloads {
-            for entries in payloads {
-                for entry in entries {
-                    total += entry.freq as u64;
-                }
-            }
-        }
-
-        total
-    }
-
-    /// Load lexicon from FST + bincode artifacts.
-    ///
-    /// - fst_path: lexicon.fst file mapping keys to indices
-    /// - bincode_path: lexicon.bincode file containing Vec<Vec<LexEntry>>
-    pub fn load_from_fst_bincode<P: AsRef<std::path::Path>>(
-        fst_path: P,
-        bincode_path: P,
-    ) -> Result<Self, String> {
-        let fst_path = fst_path.as_ref();
-        let bincode_path = bincode_path.as_ref();
-
-        // Load FST
-        let mut f =
-            File::open(fst_path).map_err(|e| format!("open fst {}: {}", fst_path.display(), e))?;
-        let mut buf = Vec::new();
-        f.read_to_end(&mut buf)
-            .map_err(|e| format!("read fst: {}", e))?;
-        let map = Map::new(buf).map_err(|e| format!("fst map: {}", e))?;
-
-        // Load bincode payloads
-        let mut f = File::open(bincode_path)
-            .map_err(|e| format!("open bincode {}: {}", bincode_path.display(), e))?;
-        let mut buf = Vec::new();
-        f.read_to_end(&mut buf)
-            .map_err(|e| format!("read bincode: {}", e))?;
-        let payloads: Vec<Vec<LexEntry>> =
-            bincode::deserialize(&buf).map_err(|e| format!("deserialize bincode: {}", e))?;
-
-        Ok(Self {
-            map: AHashMap::new(),
-            fst_map: Some(map),
-            payloads: Some(payloads),
-        })
     }
 }
 
@@ -527,9 +250,9 @@ impl Lexicon {
 
 /// High-level Model combining lexicon, word bigram model and user dictionary.
 ///
-/// Downstream engine implementations (lang-specific) will use this Model to
-/// generate and score candidates.
-#[derive(Debug, Clone)]
+/// Uses memory-mapped data files for minimal RSS. The mmap types provide the
+/// same API as the heap types but with zero-copy access to on-disk data.
+#[derive(Clone)]
 pub struct Model {
     pub lexicon: Arc<Lexicon>,
     pub word_bigram: Arc<WordBigram>,
@@ -537,8 +260,17 @@ pub struct Model {
     pub config: RefCell<Config>,
 }
 
+impl std::fmt::Debug for Model {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Model")
+            .field("lexicon", &"Lexicon")
+            .field("word_bigram", &"WordBigram")
+            .finish()
+    }
+}
+
 impl Model {
-    /// Create a new model with defaults.
+    /// Create a new model with mmap-backed data.
     pub fn new(
         lexicon: Lexicon,
         word_bigram: WordBigram,

@@ -9,7 +9,7 @@ use std::error::Error;
 use std::sync::Arc;
 
 use crate::parser::Parser;
-use libchinese_core::{Candidate, Lexicon, Model, UserDict};
+use libchinese_core::{Candidate, Lexicon, Model, UserDict, WordBigram};
 
 /// Public engine for libpinyin.
 ///
@@ -80,22 +80,23 @@ impl Engine {
     /// Load an engine from a model directory containing runtime artifacts.
     ///
     /// Expected layout (data-dir):
-    ///  - lexicon.fst + lexicon.bincode    (lexicon)
-    ///  - word_bigram.bin                  (word-level bigrams)
+    ///  - lexicon.fst + lexicon.dat        (mmap lexicon)
+    ///  - word_bigram.dat + word_bigram_words.fst  (mmap word bigram)
     ///  - userdict.redb                    (persistent user dictionary)
     pub fn from_data_dir<P: AsRef<std::path::Path>>(data_dir: P) -> Result<Self, Box<dyn Error>> {
         let data_dir = data_dir.as_ref();
 
-        // Load lexicon from fst + bincode (required)
+        // Load lexicon (mmap)
         let fst_path = data_dir.join("lexicon.fst");
-        let bincode_path = data_dir.join("lexicon.bincode");
+        let dat_path = data_dir.join("lexicon.dat");
+        let lexicon = Lexicon::load(&fst_path, &dat_path)
+            .map_err(|e| format!("failed to load lexicon from {:?}: {}", data_dir, e))?;
 
-        let lex = Lexicon::load_from_fst_bincode(&fst_path, &bincode_path).map_err(|e| {
-            format!(
-                "failed to load lexicon from {:?} and {:?}: {}",
-                fst_path, bincode_path, e
-            )
-        })?;
+        // Load word bigram (mmap)
+        let wb_dat_path = data_dir.join("word_bigram.dat");
+        let wb_fst_path = data_dir.join("word_bigram_words.fst");
+        let word_bigram = WordBigram::load(&wb_dat_path, &wb_fst_path)
+            .map_err(|e| format!("failed to load word_bigram from {:?}: {}", data_dir, e))?;
 
         // Userdict: use persistent userdict at ~/.pinyin/userdict.redb
         let userdict = {
@@ -114,36 +115,12 @@ impl Engine {
             UserDict::new(&ud_path)?
         };
 
-        // Load word bigram if present
-        let word_bigram = {
-            let wb_path = data_dir.join("word_bigram.bin");
-            if wb_path.exists() {
-                match libchinese_core::WordBigram::load(&wb_path) {
-                    Ok(wb) => {
-                        eprintln!("Loaded word bigram from {:?}", wb_path);
-                        wb
-                    }
-                    Err(e) => {
-                        eprintln!(
-                            "warning: failed to load word_bigram.bin: {}, using empty model",
-                            e
-                        );
-                        libchinese_core::WordBigram::new()
-                    }
-                }
-            } else {
-                eprintln!("word_bigram.bin not found, using empty model");
-                libchinese_core::WordBigram::new()
-            }
-        };
-
         let model = Model::new(
-            lex,
+            lexicon,
             word_bigram,
             userdict,
             libchinese_core::Config::default(),
         );
-        // let parser = Parser::with_syllables(PINYIN_SYLLABLES);
         Ok(Self::new(model))
     }
 

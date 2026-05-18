@@ -1,0 +1,9 @@
+[package]
+name = "tools-common"
+version = "0.1.0"
+edition = "2021"
+description = "Shared types and utilities for libchinese offline tooling"
+license = "MIT"
+
+[dependencies]
+fst = "0.4"

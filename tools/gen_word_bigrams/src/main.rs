@@ -1,32 +1,19 @@
-// tools/gen_word_bigrams/src/main.rs
-//
 // Generate word-level bigram model from upstream's interpolation2.text
 //
 // Usage:
-//   cargo run --bin gen_word_bigrams [interpolation_file] [lexicon_fst] [lexicon_bincode] [output_path]
+//   cargo run -p gen_word_bigrams [interpolation_file] [output_dir]
 //
 // Examples:
-//   # Simplified Chinese (pinyin)
-//   cargo run --bin gen_word_bigrams data/interpolation2.text data/converted/simplified/word_bigram.bin
+//   cargo run -p gen_word_bigrams data/interpolation2.text data/converted/simplified
+//   cargo run -p gen_word_bigrams data/zhuyin/interpolation2.text data/converted/traditional
 //
-//   # Traditional Chinese (pinyin)
-//   cargo run --bin gen_word_bigrams data/zhuyin/interpolation2.text data/converted/traditional/word_bigram.bin
-//
-//   # Zhuyin/Bopomofo (traditional)
-//   cargo run --bin gen_word_bigrams data/zhuyin/interpolation2.text data/converted/zhuyin_traditional/word_bigram.bin
-//
-// Strategy:
-// 1. Parse interpolation2.text \1-gram and \2-gram sections
-// 2. Extract word unigrams and word-to-word bigrams with counts
-// 3. Include all words from interpolation2.text (already filtered by upstream)
-// 4. Convert counts to log probabilities
-// 5. Save as word_bigram.bin using bincode
+// Outputs word_bigram.dat + word_bigram_words.fst in the output directory.
 
-use libchinese_core::WordBigram;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
+use tools_common::{WordBigram, WordBigramBuilder};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
@@ -37,26 +24,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         PathBuf::from("data/interpolation2.text")
     };
 
-    let output_path = if args.len() > 4 {
+    let output_dir = if args.len() > 4 {
         PathBuf::from(&args[4])
+    } else if args.len() > 2 {
+        PathBuf::from(&args[2])
     } else {
-        PathBuf::from("data/converted/simplified/word_bigram.bin")
+        PathBuf::from("data/converted/simplified")
     };
 
     println!(
         "Extracting unigrams and bigrams from {}...",
         interpolation_path.display()
     );
-    let (unigram_counts, bigram_counts) =
-        extract_from_interpolation(&interpolation_path)?;
+    let (unigram_counts, bigram_counts) = extract_from_interpolation(&interpolation_path)?;
 
     println!("Building word bigram model...");
     let word_bigram = build_word_bigram_model(&unigram_counts, &bigram_counts);
 
-    println!("Saving to {}...", output_path.display());
-    word_bigram.save(&output_path)?;
+    let dat_path = output_dir.join("word_bigram.dat");
+    let fst_path = output_dir.join("word_bigram_words.fst");
+    println!("Writing to {:?}...", output_dir);
+    word_bigram.write_mmap(&dat_path, &fst_path)?;
 
-    println!("\n✓ Word bigram model generated successfully!");
+    println!("\nWord bigram model generated!");
     println!("  Total unigrams: {}", unigram_counts.len());
     println!("  Total unique first words: {}", word_bigram.len());
 
@@ -68,7 +58,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 /// Parse interpolation2.text and extract both unigrams and bigrams
 fn extract_from_interpolation(
-    path: &PathBuf
+    path: &PathBuf,
 ) -> Result<(HashMap<String, u32>, HashMap<String, HashMap<String, u32>>), Box<dyn std::error::Error>>
 {
     let file = File::open(path)?;
@@ -244,19 +234,19 @@ fn build_word_bigram_model(
     unigram_counts: &HashMap<String, u32>,
     bigram_counts: &HashMap<String, HashMap<String, u32>>,
 ) -> WordBigram {
-    let mut word_bigram = WordBigram::new();
+    let mut builder = WordBigramBuilder::new();
 
     // Add unigrams
     for (word, &count) in unigram_counts {
-        word_bigram.add_unigram(word.clone(), count);
+        builder.add_unigram(word.clone(), count);
     }
 
     // Add bigrams
     for (word1, following_words) in bigram_counts {
         for (word2, &count) in following_words {
-            word_bigram.add_bigram(word1.clone(), word2.clone(), count);
+            builder.add_bigram(word1.clone(), word2.clone(), count);
         }
     }
 
-    word_bigram
+    builder.build()
 }

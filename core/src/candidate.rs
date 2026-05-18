@@ -4,21 +4,19 @@
 //! - `Candidate`: A single text candidate with score
 //! - `CandidateList`: Paginated list with cursor navigation
 
-use serde::{Deserialize, Serialize};
 use std::ops::Range;
 
 /// A single text candidate with an associated score.
 ///
 /// Scores are on a relative scale; higher is better. Use `f32` for compactness
 /// and performance.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Candidate {
     pub text: String,
     pub score: f32,
     /// Number of input bytes this candidate consumes (for partial candidates).
     /// When set, selecting this candidate should remove this many bytes from the input buffer
     /// rather than clearing the entire buffer.
-    #[serde(skip)]
     pub input_consumed: Option<usize>,
 }
 

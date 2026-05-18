@@ -397,6 +397,24 @@ impl<P: SyllableParser> Engine<P> {
             let full_text: String = final_path.iter().map(|(t, _)| t.as_str()).collect();
             let total_score: f32 = final_path.iter().map(|(_, s)| s).sum();
             results.push(Candidate::new(full_text, total_score));
+        } else if n > 1 {
+            // DP couldn't reach position n (likely incomplete trailing syllable).
+            // Find the furthest reachable position and emit its path as a partial candidate.
+            for j in (1..n).rev() {
+                if let Some(path) = &best_path[j] {
+                    if !path.is_empty() {
+                        let text: String = path.iter().map(|(t, _)| t.as_str()).collect();
+                        let total_score: f32 = path.iter().map(|(_, s)| s).sum();
+                        let bytes_consumed: usize = seg[..j].iter().map(|s| s.text().len()).sum();
+                        results.push(Candidate::with_input_consumed(
+                            text,
+                            total_score,
+                            bytes_consumed,
+                        ));
+                    }
+                    break;
+                }
+            }
         }
 
         // Also include partial candidates (covering first k syllables, k < n)
@@ -444,29 +462,9 @@ impl<P: SyllableParser> Engine<P> {
         (*self.cache_hits.borrow(), *self.cache_misses.borrow())
     }
 
-    /// Get cache hit rate as a percentage (0.0 to 100.0).
-    ///
-    /// Returns None if no cache accesses have been made yet.
-    pub fn cache_hit_rate(&self) -> Option<f32> {
-        let hits = *self.cache_hits.borrow();
-        let misses = *self.cache_misses.borrow();
-        let total = hits + misses;
-
-        if total == 0 {
-            None
-        } else {
-            Some((hits as f32 / total as f32) * 100.0)
-        }
-    }
-
     /// Get current cache size (number of entries).
     pub fn cache_size(&self) -> usize {
         self.cache.borrow().len()
-    }
-
-    /// Get cache capacity (maximum entries).
-    pub fn cache_capacity(&self) -> usize {
-        self.cache.borrow().cap().get()
     }
 
     /// Clear the cache (useful for testing or memory management).
