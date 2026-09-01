@@ -1,0 +1,10 @@
+[workspace]
+members = [
+    "core",
+    "libpinyin",
+    "libzhuyin",
+    "tools/tools-common",
+    "tools/convert_table",
+    "tools/gen_word_bigrams",
+]
+resolver = "2"
